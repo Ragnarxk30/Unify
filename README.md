@@ -32,8 +32,8 @@
 |--------|-----------|--------------------|
 | **Phase 02** | 30.10.2025 | Prototyp & App-Struktur |
 | **Phase 03** | 05.11.2025 | Umsetzen von Figma-Prototypen in funktionalen Code|
-| **Phase 04** | 13.11.2025 | Superbase Integration-Teil 1|
-| **Phase 05** | 19.11.2025 | Superbase Integration-Teil 2|
+| **Phase 04** | 13.11.2025 | Supabase Integration-Teil 1|
+| **Phase 05** | 19.11.2025 | Supabase Integration-Teil 2|
 | **Phase 06** | 27.11.2025 | Gruppenchat funktioniert|
 | **Phase 07** | 03.12.2025 | Kalenderfunktion funktioniert|
 | **Phase 08** | 11.12.2025 | Fertigstellung UI & Appfunktionen|
