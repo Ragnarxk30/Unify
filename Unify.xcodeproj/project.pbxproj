@@ -6,14 +6,34 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5BD0877E2EB8A50400AE44FC /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 5BD0877C2EB8A4FA00AE44FC /* .gitignore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
-		5B4139172EAFAC1A009B4639 /* Unify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unify.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5BD0872E2EB3980300AE44FC /* Unify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Unify.app; path = "/Users/luke-niklashorn/Documents/Unify/build/Debug-iphoneos/Unify.app"; sourceTree = "<absolute>"; };
+		5BD0877C2EB8A4FA00AE44FC /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5B4139192EAFAC1A009B4639 /* Unify */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Unify;
+			sourceTree = "<group>";
+		};
+		5BD087632EB8A45000AE44FC /* Models */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Models;
+			sourceTree = "<group>";
+		};
+		5BD087682EB8A45500AE44FC /* Screens */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Screens;
+			sourceTree = "<group>";
+		};
+		5BD087732EB8A45800AE44FC /* Views */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Views;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -33,16 +53,11 @@
 			isa = PBXGroup;
 			children = (
 				5B4139192EAFAC1A009B4639 /* Unify */,
-				5B4139182EAFAC1A009B4639 /* Products */,
+				5BD087632EB8A45000AE44FC /* Models */,
+				5BD087682EB8A45500AE44FC /* Screens */,
+				5BD087732EB8A45800AE44FC /* Views */,
+				5BD0877C2EB8A4FA00AE44FC /* .gitignore */,
 			);
-			sourceTree = "<group>";
-		};
-		5B4139182EAFAC1A009B4639 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				5B4139172EAFAC1A009B4639 /* Unify.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -62,12 +77,15 @@
 			);
 			fileSystemSynchronizedGroups = (
 				5B4139192EAFAC1A009B4639 /* Unify */,
+				5BD087632EB8A45000AE44FC /* Models */,
+				5BD087682EB8A45500AE44FC /* Screens */,
+				5BD087732EB8A45800AE44FC /* Views */,
 			);
 			name = Unify;
 			packageProductDependencies = (
 			);
 			productName = Unify;
-			productReference = 5B4139172EAFAC1A009B4639 /* Unify.app */;
+			productReference = 5BD0872E2EB3980300AE44FC /* Unify.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -95,7 +113,7 @@
 			mainGroup = 5B41390E2EAFAC1A009B4639;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 5B4139182EAFAC1A009B4639 /* Products */;
+			productRefGroup = 5B41390E2EAFAC1A009B4639;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -109,6 +127,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5BD0877E2EB8A50400AE44FC /* .gitignore in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -253,6 +272,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Unify;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -284,6 +305,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Unify;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
