@@ -26,8 +26,12 @@ struct GroupChatView: View {
                     LazyVStack(alignment: .leading, spacing: 28) {
                         ForEach(vm.group.messages) { msg in
                             // Eine Zeile pro Nachricht
-                            ChatRow(message: msg, isMe: msg.sender.id == MockData.me.id)
-                                .id(msg.id) // für Scroll-Target
+                            ChatRow(
+                                message: msg,
+                                isMe: msg.sender.id == MockData.me.id,
+                                colorManager: vm.colorManager
+                            )
+                            .id(msg.id) // für Scroll-Target
                         }
                     }
                     .padding(.horizontal, 20)
@@ -90,14 +94,15 @@ struct GroupChatView: View {
 }
 
 // MARK: - Einzelne Nachrichtenzeile
-// Unterscheidet zwischen "ich" (rechte, blaue Bubble) und "andere" (linke, helle Bubble).
+// Unterscheidet zwischen "ich" (rechte, blaue Bubble) und "andere" (linke, farbige Bubble je Teilnehmer).
 private struct ChatRow: View {
     let message: Message
     let isMe: Bool
+    let colorManager: ColorManager
 
     var body: some View {
         if isMe {
-            // Rechte Seite (eigene Nachricht)
+            // Rechte Seite (eigene Nachricht) – bleibt blau/weiß
             HStack(alignment: .bottom, spacing: 12) {
                 // Platzhalter links, damit die Bubble nicht zu breit wird
                 Spacer(minLength: 120)
@@ -119,7 +124,7 @@ private struct ChatRow: View {
                             Color.blue,
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
-                        // maximale Bubble-Breite, damit die Zeilen gut lesbar bleiben
+                        // maximale Bubble-Breite
                         .frame(maxWidth: 420, alignment: .trailing)
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
@@ -130,11 +135,14 @@ private struct ChatRow: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
 
-                // Avatar rechts (Initialen „DU“), optisch optional
+                // Avatar rechts (Initialen „DU“)
                 InitialsAvatar(initials: "DU")
             }
         } else {
-            // Linke Seite (Nachricht anderer)
+            // Linke Seite (Nachricht anderer) – farbige Bubble je Teilnehmer
+            let bubble = colorManager.color(for: message.sender)
+            let textColor = preferredTextColor(for: bubble)
+
             HStack(alignment: .top, spacing: 12) {
                 // Avatar mit Initialen aus dem Namen
                 InitialsAvatar(initials: initials(for: message.sender.displayName))
@@ -145,14 +153,14 @@ private struct ChatRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    // Helle Bubble (empfangene Nachricht)
+                    // Farbige Bubble (empfangene Nachricht)
                     Text(message.text)
                         .font(.body)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(textColor)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(
-                            Color(.secondarySystemBackground),
+                            bubble,
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
                         .frame(maxWidth: 460, alignment: .leading)
@@ -183,6 +191,16 @@ private struct ChatRow: View {
         df.locale = .current
         df.dateFormat = "HH:mm"
         return df.string(from: date)
+    }
+
+    // Einfache Kontrast-Heuristik für Textfarbe auf bunter Bubble
+    private func preferredTextColor(for bubble: Color) -> Color {
+        switch bubble {
+        case .yellow, .mint, .cyan:
+            return .black
+        default:
+            return .white
+        }
     }
 }
 

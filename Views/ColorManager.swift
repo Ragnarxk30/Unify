@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 final class ColorManager: ObservableObject {
@@ -24,8 +25,6 @@ final class ColorManager: ObservableObject {
 
     init() {
         resetAvailable()
-        // Optional: load persisted assignments here
-        // loadAssignments()
     }
 
     private func resetAvailable() {
@@ -41,56 +40,26 @@ final class ColorManager: ObservableObject {
         if let assigned = assignments[user.id] {
             return assigned
         }
-        // Assign a new color
         let newColor = takeRandomAvailableColor()
         assignments[user.id] = newColor
-        // Optional: persist assignments here
-        // saveAssignments()
         return newColor
     }
 
     private func takeRandomAvailableColor() -> Color {
-        guard !available.isEmpty else {
+        if available.isEmpty {
             // All colors used: allow reuse by resetting the available pool.
-            // Alternative strategies: generate new colors or return a fallback.
             resetAvailable()
-            // Note: We do NOT clear assignments; this only influences future new users.
+            // Note: we keep existing assignments; reset only affects future new users.
         }
         let idx = Int.random(in: 0..<available.count)
         let chosen = available[idx]
         available.remove(at: idx)
         return chosen
     }
-
-    // Optional luminance-based text color if you want to centralize it here.
-    // For now we keep a simple heuristic compatible with current views.
-    func preferredTextColor(for bubble: Color) -> Color {
-        switch bubble {
-        case .yellow, .mint, .cyan:
-            return .black
-        default:
-            return .white
-        }
-    }
-
-    // MARK: - (Optional) Persistence stubs
-    // Converting Color to persistable data is non-trivial because Color isn’t Codable.
-    // You could persist hex values or HSB components for custom colors instead.
-
-    /*
-    private func saveAssignments() {
-        // Map UUID -> custom serializable representation (e.g., hex string)
-        // UserDefaults.standard.set(..., forKey: "colorAssignments")
-    }
-
-    private func loadAssignments() {
-        // Load and rebuild the assignments dictionary
-    }
-    */
 }
 
 extension Color {
-    // Keep the hex initializer here so ColorManager compiles standalone.
+    // Hex initializer used by ColorManager palette
     init(hex: UInt, alpha: Double = 1.0) {
         self.init(
             .sRGB,

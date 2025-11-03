@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 // MARK: - CalendarViewModel
 // Hält die persönlichen (nicht gruppenbezogenen) Termine für den "Mein Kalender"-Tab.
@@ -16,6 +17,9 @@ final class CalendarViewModel: ObservableObject {
 final class GroupsViewModel: ObservableObject {
     // Alle Gruppen, initial mit Mock-Daten befüllt.
     @Published var groups: [Group] = MockData.groups
+
+    // Central color manager for consistent bubble colors across the app.
+    let colorManager = ColorManager()
 
     // Erstellt eine neue Gruppe mit optionalem Namen und (später) eingeladenen Nutzern.
     // Aktuell werden die eingeladenen Apple IDs noch nicht verwendet (nur Demo).
@@ -60,6 +64,9 @@ final class ChatViewModel: ObservableObject {
 
     // Referenz auf den zentralen Store (GroupsViewModel), um Nachrichten hinzuzufügen usw.
     private var groupsVM: GroupsViewModel
+
+    // Expose color manager for views
+    var colorManager: ColorManager { groupsVM.colorManager }
 
     // Initialisiert den Chat mit einer bestehenden Gruppe und dem zentralen Store.
     init(group: Group, groupsVM: GroupsViewModel) {
