@@ -26,7 +26,7 @@ public class AuthService {
         return user
     }
     
-    func signIn(email: String, password: String) async throws -> User {
+    func signIn(email: String, password: String) async throws -> AppUser {
         let authResponse = try await client.auth.signIn(
             email: email,
             password: password
@@ -34,7 +34,7 @@ public class AuthService {
         
         let authUser = authResponse.user
         
-        let user: User = try await client
+        let user: AppUser = try await client
             .from("user")
             .select()
             .eq("id", value: authUser.id)
