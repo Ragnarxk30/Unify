@@ -190,7 +190,7 @@ private struct DemoRegisterView: View {
             VStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("E-Mail").font(.subheadline).foregroundStyle(.secondary)
-                    TextField("z. B. demo@example.com", text: $email)
+                    TextField("Bitte E-Mail eingeben", text: $email)
                         .keyboardType(.emailAddress)
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
@@ -205,7 +205,7 @@ private struct DemoRegisterView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Benutzername").font(.subheadline).foregroundStyle(.secondary)
-                    TextField("z. B. neuer_user", text: $newUsername)
+                    TextField("Bitte Benutzername eingeben", text: $newUsername)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
@@ -233,7 +233,7 @@ private struct DemoRegisterView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Passwort bestätigen").font(.subheadline).foregroundStyle(.secondary)
-                    SecureField("Passwort wiederholen", text: $confirmPassword)
+                    SecureField("Passwort bestätigen", text: $confirmPassword)
                         .textContentType(.newPassword)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
