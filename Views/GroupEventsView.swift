@@ -1,23 +1,31 @@
 import SwiftUI
 
+// MARK: - Ansicht für Gruppen-Termine
+// Zeigt alle Termine einer bestimmten Gruppe an und ermöglicht das Hinzufügen neuer Termine.
 struct GroupEventsView: View {
-    let groupID: UUID
-    @State private var title: String = ""
-    @State private var start: Date = Date().addingTimeInterval(3600)
-    @State private var end: Date = Date().addingTimeInterval(7200)
-    @ObservedObject private var groupsVM: GroupsViewModel
+    let groupID: UUID                    // ID der angezeigten Gruppe
 
+    // Lokale State-Variablen für neue Termine
+    @State private var title: String = ""                      // Titel für neuen Termin
+    @State private var start: Date = Date().addingTimeInterval(3600) // Startzeit (1h ab jetzt)
+    @State private var end: Date = Date().addingTimeInterval(7200)   // Endzeit (2h ab jetzt)
+
+    @ObservedObject private var groupsVM: GroupsViewModel      // Globale Gruppen-Daten (ViewModel)
+
+    // MARK: - Initialisierung
     init(groupID: UUID, groupsVM: GroupsViewModel) {
         self.groupID = groupID
-        // WICHTIG: ObservableObject-Initialisierung, kein @Bindable!
+        // ObservableObject muss mit ObservedObject(initialValue:) initialisiert werden
         self._groupsVM = ObservedObject(initialValue: groupsVM)
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+
+                // MARK: - Bestehende Termine anzeigen
                 if let group = groupsVM.groups.first(where: { $0.id == groupID }) {
-                    // Normale Array-Variante (kein $group.events!)
+                    // Iteration über alle Events der Gruppe
                     ForEach(group.events) { ev in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(ev.title)
@@ -26,25 +34,32 @@ struct GroupEventsView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
-                        .cardStyle()
+                        .cardStyle() // vermutlich Custom Modifier für Karten-Look
                     }
                 }
 
-                // Eingabebereich für neuen Termin
+                // MARK: - Eingabebereich für neuen Termin
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Neuen Gruppentermin hinzufügen")
                         .font(.headline)
 
+                    // Titel-Feld
                     TextField("Titel", text: $title)
                         .textFieldStyle(.roundedBorder)
 
+                    // Start- und End-Datum
                     DatePicker("Start", selection: $start)
                     DatePicker("Ende", selection: $end)
 
+                    // Button zum Hinzufügen
                     Button {
                         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
+
+                        // Füge das Event über das ViewModel hinzu
                         groupsVM.addEvent(title: trimmed, start: start, end: end, to: groupID)
+
+                        // Felder zurücksetzen
                         title = ""
                         start = Date().addingTimeInterval(3600)
                         end = Date().addingTimeInterval(7200)
@@ -63,7 +78,8 @@ struct GroupEventsView: View {
         .background(Color(.systemGroupedBackground))
     }
 
-    // Lokale Formatierung, um Cross-File-Overloads zu vermeiden
+    // MARK: - Zeitformatierung für Events
+    // Zeigt entweder "Start – Ende" (gleicher Tag) oder "Start – Ende" (verschiedene Tage)
     private static func format(_ start: Date, _ end: Date) -> String {
         let sameDay = Calendar.current.isDate(start, inSameDayAs: end)
         let d = DateFormatter()

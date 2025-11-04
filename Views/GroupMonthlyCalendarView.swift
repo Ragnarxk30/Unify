@@ -1,23 +1,31 @@
 import SwiftUI
 
+// MARK: - Monats-Kalenderansicht für eine Gruppe
+// Zeigt einen kompletten Monat an, markiert Tage mit Events und ermöglicht Detailansicht pro Tag.
 struct GroupMonthlyCalendarView: View {
-    let groupID: UUID
-    @ObservedObject private var groupsVM: GroupsViewModel
+    let groupID: UUID                                // ID der Gruppe
+    @ObservedObject private var groupsVM: GroupsViewModel // ViewModel mit allen Gruppen
 
-    // Kalenderstatus
-    @State private var monthAnchor: Date = Date() // aktueller Monat
-    @State private var selectedDay: Date? = nil
-    @State private var showDaySheet: Bool = false
+    // MARK: - Kalenderzustand
+    @State private var monthAnchor: Date = Date()  // Aktueller Monat, der angezeigt wird
+    @State private var selectedDay: Date? = nil    // Ausgewählter Tag für Sheet
+    @State private var showDaySheet: Bool = false  // Steuerung, ob Sheet angezeigt wird
 
+    // MARK: - Initialisierung
     init(groupID: UUID, groupsVM: GroupsViewModel) {
         self.groupID = groupID
         self._groupsVM = ObservedObject(initialValue: groupsVM)
     }
 
+    // MARK: - Kalender-Berechnungen
     private var cal: Calendar { Calendar.current }
+
+    // Zeitraum des aktuellen Monats
     private var monthInterval: DateInterval {
         cal.dateInterval(of: .month, for: monthAnchor)!
     }
+
+    // Alle Tage des Monats
     private var daysInMonth: [Date] {
         var days: [Date] = []
         var d = monthInterval.start
@@ -27,14 +35,19 @@ struct GroupMonthlyCalendarView: View {
         }
         return days
     }
+
+    // Offset für ersten Wochentag (z. B. Mo = 0)
     private var firstWeekdayOffset: Int {
         let weekday = cal.component(.weekday, from: monthInterval.start)
         let first = cal.firstWeekday
         return (weekday - first + 7) % 7
     }
 
+    // MARK: - Events pro Tag
     private func events(on day: Date) -> [Event] {
         guard let group = groupsVM.groups.first(where: { $0.id == groupID }) else { return [] }
+
+        // Filtert alle Events, die auf den Tag fallen oder die den Tag überdecken
         return group.events.filter {
             cal.isDate($0.start, inSameDayAs: day) || cal.isDate($0.end, inSameDayAs: day) ||
             ($0.start <= day && day <= $0.end && cal.isDate($0.start, equalTo: day, toGranularity: .month))
@@ -42,28 +55,25 @@ struct GroupMonthlyCalendarView: View {
         .sorted { $0.start < $1.start }
     }
 
+    // MARK: - UI
     var body: some View {
         VStack(spacing: 12) {
-            // Monatstitel + Navigation
+            // Navigation: vorheriger/aktueller/nächster Monat
             HStack {
-                Button {
-                    withAnimation { monthAnchor = cal.date(byAdding: .month, value: -1, to: monthAnchor)! }
-                } label: { Image(systemName: "chevron.left") }
-
+                Button { withAnimation { monthAnchor = cal.date(byAdding: .month, value: -1, to: monthAnchor)! } } label: {
+                    Image(systemName: "chevron.left")
+                }
                 Spacer()
-
                 Text(monthTitle(monthAnchor))
                     .font(.title3).bold()
-
                 Spacer()
-
-                Button {
-                    withAnimation { monthAnchor = cal.date(byAdding: .month, value: 1, to: monthAnchor)! }
-                } label: { Image(systemName: "chevron.right") }
+                Button { withAnimation { monthAnchor = cal.date(byAdding: .month, value: 1, to: monthAnchor)! } } label: {
+                    Image(systemName: "chevron.right")
+                }
             }
             .padding(.horizontal, 16)
 
-            // Wochentage-Kopf
+            // Kopfzeile: Wochentage
             let weekdaySymbols = shortWeekdaySymbols()
             HStack {
                 ForEach(weekdaySymbols, id: \.self) { wd in
@@ -75,13 +85,12 @@ struct GroupMonthlyCalendarView: View {
             }
             .padding(.horizontal, 12)
 
-            // Grid
+            // Grid: Tage des Monats
             VStack(spacing: 8) {
+                // Erste Woche mit Offset
                 HStack(spacing: 8) {
                     ForEach(0..<firstWeekdayOffset, id: \.self) { _ in
-                        Color.clear
-                            .frame(height: 52)
-                            .frame(maxWidth: .infinity)
+                        Color.clear.frame(height: 52).frame(maxWidth: .infinity)
                     }
                     ForEach(0..<min(7-firstWeekdayOffset, daysInMonth.count), id: \.self) { i in
                         let day = daysInMonth[i]
@@ -91,6 +100,8 @@ struct GroupMonthlyCalendarView: View {
                         }
                     }
                 }
+
+                // Restliche Wochen
                 let remaining = Array(daysInMonth.dropFirst(7-firstWeekdayOffset))
                 ForEach(0..<Int(ceil(Double(remaining.count)/7.0)), id: \.self) { row in
                     HStack(spacing: 8) {
@@ -103,9 +114,7 @@ struct GroupMonthlyCalendarView: View {
                                     showDaySheet = !events(on: day).isEmpty
                                 }
                             } else {
-                                Color.clear
-                                    .frame(height: 52)
-                                    .frame(maxWidth: .infinity)
+                                Color.clear.frame(height: 52).frame(maxWidth: .infinity)
                             }
                         }
                     }
@@ -124,7 +133,7 @@ struct GroupMonthlyCalendarView: View {
         }
     }
 
-    // Helpers
+    // MARK: - Hilfsfunktionen
     private func monthTitle(_ date: Date) -> String {
         let df = DateFormatter()
         df.locale = .current
@@ -144,6 +153,7 @@ struct GroupMonthlyCalendarView: View {
     }
 }
 
+// MARK: - Einzelne Tag-Zelle im Monats-Grid
 private struct DayCell: View {
     let day: Date
     let events: [Event]
@@ -174,14 +184,8 @@ private struct DayCell: View {
         .padding(8)
         .frame(height: 52)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.cardBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.cardStroke)
-        )
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.cardBackground))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.cardStroke))
         .onTapGesture { onTap() }
     }
 
@@ -190,6 +194,7 @@ private struct DayCell: View {
     }
 }
 
+// MARK: - Sheet für Events eines ausgewählten Tages
 private struct DayEventsSheet: View {
     let date: Date
     let events: [Event]

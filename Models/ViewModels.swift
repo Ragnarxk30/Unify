@@ -22,7 +22,7 @@ final class GroupsViewModel: ObservableObject {
     let colorManager = ColorManager()
 
     // Erstellt eine neue Gruppe mit optionalem Namen und (später) eingeladenen Nutzern.
-    // Aktuell werden die eingeladenen Apple IDs noch nicht verwendet (nur Demo).
+    // Aktuell werden die eingeladenen Apple IDs noch nicht verwendet (nur Demo). ::::(
     func createGroup(name: String, invited: [String]) {
         let newID = UUID()
         let new = Group(
@@ -37,7 +37,7 @@ final class GroupsViewModel: ObservableObject {
     }
 
     // Fügt einer Gruppe (identifiziert über groupID) eine Chat-Nachricht hinzu.
-    // Sender ist in den Mock-Daten "Ich".
+    // Sender ist in den Mock-Daten "Ich". ¡¡¡¡¡¡:(
     func addMessage(_ text: String, to groupID: UUID) {
         guard let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
         let msg = Message(id: UUID(), sender: MockData.me, text: text, sentAt: Date())

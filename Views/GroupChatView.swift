@@ -1,33 +1,34 @@
 import SwiftUI
 
 // MARK: - Gruppenchat-Hauptansicht
-// Zeigt den Nachrichtenverlauf einer Gruppe und unten einen Composer zum Senden.
-// Layout orientiert sich am Figma: linke Nachrichten mit Avatar/Name/Zeit,
-// eigene Nachrichten rechts in blauer Bubble mit Zeit.
+// Zeigt den Nachrichtenverlauf einer Gruppe und unten ein Eingabefeld (Composer).
+// Enthält Auto-Scroll, Chatblasen für eigene und fremde Nachrichten.
 struct GroupChatView: View {
-    // ViewModel für diesen Chat (liefert Nachrichten und sendet neue)
+    // ViewModel für den Chat (enthält Nachrichten und Logik)
     @StateObject var vm: ChatViewModel
 
-    // Eingabetext im Composer
+    // Aktuell eingegebener Nachrichtentext (im Composer unten)
     @State private var draft: String = ""
 
-    // Initializer, um ein bereits erzeugtes ChatViewModel zu injizieren.
-    // Wichtig: @StateObject muss im Init via StateObject(wrappedValue:) gesetzt werden.
+    // Initializer: erlaubt das Injizieren eines bestehenden ChatViewModel-Objekts
+    // Wichtig: Bei @StateObject muss der wrappedValue explizit gesetzt werden.
     init(vm: ChatViewModel) {
         _vm = StateObject(wrappedValue: vm)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Nachrichtenliste mit Auto-Scroll ans Ende
+            // MARK: Nachrichtenliste mit Auto-Scroll
             ScrollViewReader { proxy in
                 ScrollView {
-                    // LazyVStack für performantes Rendering langer Listen
+                    // LazyVStack = performant bei langen Listen
                     LazyVStack(alignment: .leading, spacing: 28) {
+                        // Iteration über alle Nachrichten der Gruppe
                         ForEach(vm.group.messages) { msg in
-                            // Eine Zeile pro Nachricht
                             ChatRow(
                                 message: msg,
+                                // 🔹 MockData wird hier verwendet:
+                                // Vergleich mit MockData.me.id, um festzustellen, ob die Nachricht "von mir" ist.
                                 isMe: msg.sender.id == MockData.me.id,
                                 colorManager: vm.colorManager
                             )
@@ -37,17 +38,17 @@ struct GroupChatView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 24)
                 }
-                // Beim ersten Erscheinen an das Ende scrollen
+                // Beim ersten Erscheinen ans Ende scrollen
                 .onAppear { scrollToBottom(proxy) }
-                // Wenn die Anzahl der Nachrichten sich ändert, erneut ans Ende scrollen
+                // Bei neuen Nachrichten ebenfalls nach unten scrollen
                 .onChange(of: vm.group.messages.count) { _ in
                     scrollToBottom(proxy)
                 }
             }
 
-            // Composer (Eingabefeld + Senden)
+            // MARK: Composer unten (Eingabefeld + Senden)
             HStack(spacing: 10) {
-                // Mehrzeiliges Textfeld (max. 4 Zeilen), mit abgerundetem Hintergrund
+                // Mehrzeiliges Textfeld mit runden Ecken
                 TextField("Nachricht eingeben...", text: $draft, axis: .vertical)
                     .lineLimit(1...4)
                     .padding(.horizontal, 14)
@@ -57,12 +58,15 @@ struct GroupChatView: View {
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                     )
 
-                // Senden-Button
+                // MARK: Senden-Button
                 Button {
+                    // Entfernt überflüssige Leerzeichen
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
-                    vm.send(text: text) // an ViewModel delegieren
-                    draft = ""          // Eingabefeld leeren
+                    // Nachricht wird an das ViewModel weitergegeben
+                    vm.send(text: text)
+                    // Eingabefeld leeren
+                    draft = ""
                 } label: {
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 16, weight: .semibold))
@@ -74,14 +78,14 @@ struct GroupChatView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial) // leichter „Glas“-Effekt wie im System
+            .background(.ultraThinMaterial) // halbtransparenter Glas-Effekt
         }
-        // Beim Erscheinen lokale Gruppendaten mit dem Store synchronisieren
+        // MARK: Synchronisiert beim Anzeigen die Daten mit dem zentralen Store
         .onAppear { vm.refreshFromStore() }
     }
 
-    // MARK: - Auto-Scroll Helper
-    // Scrollt mit kurzer Animation auf die letzte Nachricht.
+    // MARK: - Scroll-Helfer
+    // Scrollt animiert auf die letzte Nachricht (z. B. nach Senden oder Laden)
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         if let last = vm.group.messages.last {
             DispatchQueue.main.async {
@@ -94,7 +98,7 @@ struct GroupChatView: View {
 }
 
 // MARK: - Einzelne Nachrichtenzeile
-// Unterscheidet zwischen "ich" (rechte, blaue Bubble) und "andere" (linke, farbige Bubble je Teilnehmer).
+// Zeigt eine Chat-Bubble je nach Absenderseite (links = andere, rechts = ich)
 private struct ChatRow: View {
     let message: Message
     let isMe: Bool
@@ -102,19 +106,19 @@ private struct ChatRow: View {
 
     var body: some View {
         if isMe {
-            // Rechte Seite (eigene Nachricht) – bleibt blau/weiß
+            // MARK: Rechte Seite (eigene Nachricht)
             HStack(alignment: .bottom, spacing: 12) {
-                // Platzhalter links, damit die Bubble nicht zu breit wird
+                // Platzhalter links für Abstand
                 Spacer(minLength: 120)
 
                 VStack(alignment: .trailing, spacing: 6) {
-                    // Name „Du“ rechts
+                    // Name "Du" wird rechts angezeigt
                     Text("Du")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
-                    // Blaue Bubble (eigene Nachricht)
+                    // Blaue Sprechblase
                     Text(message.text)
                         .font(.body)
                         .foregroundStyle(.white)
@@ -124,27 +128,26 @@ private struct ChatRow: View {
                             Color.blue,
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
-                        // maximale Bubble-Breite
                         .frame(maxWidth: 420, alignment: .trailing)
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
-                    // Zeitstempel rechtsbündig
+                    // Zeitstempel unten rechts
                     Text(Self.timeString(message.sentAt))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
 
-                // Avatar rechts (Initialen „DU“)
+                // Avatar rechts mit „DU“-Initialen
                 InitialsAvatar(initials: "DU")
             }
         } else {
-            // Linke Seite (Nachricht anderer) – farbige Bubble je Teilnehmer
+            // MARK: Linke Seite (Nachrichten anderer Teilnehmer)
             let bubble = colorManager.color(for: message.sender)
             let textColor = preferredTextColor(for: bubble)
 
             HStack(alignment: .top, spacing: 12) {
-                // Avatar mit Initialen aus dem Namen
+                // Avatar mit Initialen des Senders
                 InitialsAvatar(initials: initials(for: message.sender.displayName))
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -153,7 +156,7 @@ private struct ChatRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    // Farbige Bubble (empfangene Nachricht)
+                    // Farbige Bubble (jede Person andere Farbe)
                     Text(message.text)
                         .font(.body)
                         .foregroundStyle(textColor)
@@ -165,19 +168,20 @@ private struct ChatRow: View {
                         )
                         .frame(maxWidth: 460, alignment: .leading)
 
-                    // Zeitstempel linksbündig
+                    // Zeitstempel unten links
                     Text(Self.timeString(message.sentAt))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
-                // Platzhalter rechts
-                Spacer(minLength: 80)
+                Spacer(minLength: 80) // rechter Abstand
             }
         }
     }
 
-    // Initialen aus einem Namen bilden (z. B. „Max Mustermann“ -> „MM“)
+    // MARK: - Hilfsfunktionen
+
+    // Initialen aus einem Namen erzeugen, z. B. „Max Mustermann“ → „MM“
     private func initials(for name: String) -> String {
         let comps = name.split(separator: " ")
         let first = comps.first?.first.map(String.init) ?? ""
@@ -185,7 +189,7 @@ private struct ChatRow: View {
         return (first + second).uppercased()
     }
 
-    // Zeitformatierung „HH:mm“ für den Zeitstempel
+    // Zeitformatierung für Uhrzeit (z. B. "14:32")
     static func timeString(_ date: Date) -> String {
         let df = DateFormatter()
         df.locale = .current
@@ -193,7 +197,7 @@ private struct ChatRow: View {
         return df.string(from: date)
     }
 
-    // Einfache Kontrast-Heuristik für Textfarbe auf bunter Bubble
+    // Textfarbe je nach Bubble-Hintergrundfarbe (für Lesbarkeit)
     private func preferredTextColor(for bubble: Color) -> Color {
         switch bubble {
         case .yellow, .mint, .cyan:
@@ -204,8 +208,8 @@ private struct ChatRow: View {
     }
 }
 
-// MARK: - Avatar mit Initialen
-// Runder Kreis mit Initialen, dezente Sekundärfarbe
+// MARK: - Avatar-Komponente
+// Zeigt runden Kreis mit Initialen, dezente Hintergrundfarbe
 private struct InitialsAvatar: View {
     let initials: String
     var body: some View {
