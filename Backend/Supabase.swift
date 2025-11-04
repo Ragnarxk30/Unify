@@ -7,6 +7,7 @@
 
 
 import Supabase
+import Foundation
 
 let supabase = SupabaseClient(
   supabaseURL: URL(string: "https://gtyyrkwfkzzyhsearkgn.supabase.co")!,
