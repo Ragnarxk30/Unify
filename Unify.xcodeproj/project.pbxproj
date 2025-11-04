@@ -41,6 +41,11 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		DD505A4D2EBA3B38002F1FEA /* Endpoints */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Endpoints;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +77,7 @@
 		DD505A072EBA2FFF002F1FEA /* Backend */ = {
 			isa = PBXGroup;
 			children = (
+				DD505A4D2EBA3B38002F1FEA /* Endpoints */,
 				DD505A062EBA2FFF002F1FEA /* Supabase.swift */,
 			);
 			path = Backend;
@@ -97,6 +103,7 @@
 				5BD087632EB8A45000AE44FC /* Models */,
 				5BD087682EB8A45500AE44FC /* Screens */,
 				5BD087732EB8A45800AE44FC /* Views */,
+				DD505A4D2EBA3B38002F1FEA /* Endpoints */,
 			);
 			name = Unify;
 			packageProductDependencies = (
