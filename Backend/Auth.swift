@@ -8,7 +8,7 @@ public class AuthService {
         self.client = supabase
     }
     
-    func signUp(email: String, password: String, name: String) async throws -> User {
+    func signUp(email: String, password: String, name: String) async throws -> AppUser {
         let authResponse = try await client.auth.signUp(
             email: email,
             password: password
@@ -16,7 +16,7 @@ public class AuthService {
         
         let authUser = authResponse.user
         try await Task.sleep(nanoseconds: 1_000_000_000) // 1 Sekunde
-        let user = User(id: authUser.id, display_name: name)
+        let user = AppUser(id: authUser.id, display_name: name)
         
         try await client
             .from("user")

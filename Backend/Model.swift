@@ -1,7 +1,7 @@
 // Models/User.swift
 import Foundation
 
-struct User: Codable {
+struct AppUser: Codable {
     let id: UUID
     let display_name: String
 }

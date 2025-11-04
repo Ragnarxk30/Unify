@@ -107,7 +107,7 @@ struct SettingsView: View {
         
         do {
             // ✅ display_name statt name
-            let testUser = User(
+            let testUser = AppUser(
                 id: UUID(),
                 display_name: "TestUser \(Int.random(in: 1...1000))"
             )
