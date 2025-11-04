@@ -13,11 +13,11 @@
 |-----------|--------------|-----------|
 | 30.10.2025 | Donnerstag | **Präsentation (Phase 02)** |
 | 05.11.2025 | Mittwoch | **Präsentation (Phase 03)** |
-| 13.11.2025 | Donnerstag | **Präsentation (Phase 04)** |
+| 13.11.2025 | Donnerstag | **Präsentation (Phase 04 => MS1)** |  
 | 19.11.2025 | Mittwoch | **Präsentation (Phase 05)** |
 | 27.11.2025 | Donnerstag | **Präsentation (Phase 06)** |
 | 03.12.2025 | Mittwoch | **Präsentation (Phase 07)** |
-| 11.12.2025 | Donnerstag | **Präsentation (Phase 08)** |
+| 11.12.2025 | Donnerstag | **Präsentation (Phase 08 => MS2)** | 
 | 17.12.2025 | Mittwoch | **Präsentation (Phase 09)** |
 | 18.12.2025 | Donerstag | **Interne Fertigstellung Unify** |
 | ❄️ Winterferien | — | **Fertigstellung Abschlusspräsentation**|
@@ -32,8 +32,8 @@
 |--------|-----------|--------------------|
 | **Phase 02** | 30.10.2025 | Prototyp & App-Struktur |
 | **Phase 03** | 05.11.2025 | Umsetzen von Figma-Prototypen in funktionalen Code|
-| **Phase 04** | 13.11.2025 | Superbase Integration-Teil 1|
-| **Phase 05** | 19.11.2025 | Superbase Integration-Teil 2|
+| **Phase 04** | 13.11.2025 | Supabase Integration-Teil 1|
+| **Phase 05** | 19.11.2025 | Supabase Integration-Teil 2|
 | **Phase 06** | 27.11.2025 | Gruppenchat funktioniert|
 | **Phase 07** | 03.12.2025 | Kalenderfunktion funktioniert|
 | **Phase 08** | 11.12.2025 | Fertigstellung UI & Appfunktionen|
