@@ -1,8 +1,11 @@
 import SwiftUI
+import Supabase
 
 struct SettingsView: View {
     // Speichert die Auswahl persistent
     @AppStorage("appAppearance") private var appAppearance: String = "system"
+    @State private var isInserting = false
+    @State private var alertMessage: String?
 
     var body: some View {
         Form {
@@ -32,6 +35,11 @@ struct SettingsView: View {
             Section("App") {
                 Toggle(isOn: .constant(true)) { Text("Benachrichtigungen") }
                 Toggle(isOn: .constant(false)) { Text("Experimentelle Features") }
+                Button {
+                    Task { await testSupabaseInsert() }
+                } label: {
+                    Text("Insert Test")
+                }
             }
 
             Section {
@@ -74,6 +82,21 @@ struct SettingsView: View {
         case "dark":  setAppearance(.dark)
         default:      setAppearance(.unspecified)
         }
+    }
+
+    @MainActor
+    private func testSupabaseInsert() async {
+        guard !isInserting else { return }
+        isInserting = true
+        do {
+            try await supabase.from("user")
+                .insert(["display_name": "hamed"])
+                .execute()
+            alertMessage = "Neue Zeile in 'user' mit display_name = 'hamed' erstellt."
+        } catch {
+            alertMessage = "Fehler beim Insert: \(error.localizedDescription)"
+        }
+        isInserting = false
     }
 }
 
