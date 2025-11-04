@@ -10,14 +10,12 @@
 		5BD0877E2EB8A50400AE44FC /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 5BD0877C2EB8A4FA00AE44FC /* .gitignore */; };
 		5BD0878E2EB8AF5600AE44FC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5BD0878D2EB8AF5600AE44FC /* Assets.xcassets */; };
 		DD505A052EBA2F88002F1FEA /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = DD505A042EBA2F88002F1FEA /* Supabase */; };
-		DD505A082EBA2FFF002F1FEA /* Supabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD505A062EBA2FFF002F1FEA /* Supabase.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		5BD0877C2EB8A4FA00AE44FC /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 		5BD0878D2EB8AF5600AE44FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5BFEECC82EB8D47700CF929F /* Unify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unify.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		DD505A062EBA2FFF002F1FEA /* Supabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supabase.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -41,6 +39,11 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		DD505AC02EBA5F9D002F1FEA /* Backend */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Backend;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,7 +61,7 @@
 		5B41390E2EAFAC1A009B4639 = {
 			isa = PBXGroup;
 			children = (
-				DD505A072EBA2FFF002F1FEA /* Backend */,
+				DD505AC02EBA5F9D002F1FEA /* Backend */,
 				5BD0878D2EB8AF5600AE44FC /* Assets.xcassets */,
 				5B4139192EAFAC1A009B4639 /* Unify */,
 				5BD087632EB8A45000AE44FC /* Models */,
@@ -67,14 +70,6 @@
 				5BD0877C2EB8A4FA00AE44FC /* .gitignore */,
 				5BFEECC82EB8D47700CF929F /* Unify.app */,
 			);
-			sourceTree = "<group>";
-		};
-		DD505A072EBA2FFF002F1FEA /* Backend */ = {
-			isa = PBXGroup;
-			children = (
-				DD505A062EBA2FFF002F1FEA /* Supabase.swift */,
-			);
-			path = Backend;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -97,6 +92,7 @@
 				5BD087632EB8A45000AE44FC /* Models */,
 				5BD087682EB8A45500AE44FC /* Screens */,
 				5BD087732EB8A45800AE44FC /* Views */,
+				DD505AC02EBA5F9D002F1FEA /* Backend */,
 			);
 			name = Unify;
 			packageProductDependencies = (
@@ -160,7 +156,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DD505A082EBA2FFF002F1FEA /* Supabase.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

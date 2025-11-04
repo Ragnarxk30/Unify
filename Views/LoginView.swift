@@ -1,23 +1,14 @@
 import SwiftUI
 
 struct LoginView: View {
-    // Callback, der bei erfolgreichem Login aufgerufen wird (kommt aus SharedCalendarApp)
     let onSuccess: () -> Void
 
-    // Eingaben
-    @State private var username: String = ""
+    @State private var email: String = ""
     @State private var password: String = ""
-
-    // UI-Status
     @State private var isSecure: Bool = true
     @State private var errorMessage: String?
-
-    // Navigation (Push zur Registrierung)
     @State private var showRegister: Bool = false
-
-    // Demo-Credentials
-    private let demoUsername = "demo"
-    private let demoPassword = "1234"
+    @State private var isLoading: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -36,9 +27,12 @@ struct LoginView: View {
                 // Eingabefelder
                 VStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Benutzername").font(.subheadline).foregroundStyle(.secondary)
-                        TextField("z. B. demo", text: $username)
-                            .textContentType(.username)
+                        Text("E-Mail")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        TextField("z. B. test@example.com", text: $email)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
                             .padding(.horizontal, 12)
@@ -53,14 +47,14 @@ struct LoginView: View {
                         Text("Passwort").font(.subheadline).foregroundStyle(.secondary)
                         HStack(spacing: 0) {
                             if isSecure {
-                                SecureField("z. B. 1234", text: $password)
+                                SecureField("Passwort eingeben", text: $password)
                                     .textContentType(.password)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled(true)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 10)
                             } else {
-                                TextField("z. B. 1234", text: $password)
+                                TextField("Passwort eingeben", text: $password)
                                     .textContentType(.password)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled(true)
@@ -101,16 +95,19 @@ struct LoginView: View {
                     Button {
                         login()
                     } label: {
-                        Text("Anmelden")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                        if isLoading {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text("Anmelden")
+                                .font(.headline)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                     .buttonStyle(.borderedProminent)
-                    .disabled(username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                              password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isLoading || email.isEmpty || password.isEmpty)
 
-                    // Push zur Demo-Registrierungsansicht
                     Button {
                         showRegister = true
                     } label: {
@@ -127,53 +124,60 @@ struct LoginView: View {
             .padding(.vertical, 24)
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationDestination(isPresented: $showRegister) {
-                DemoRegisterView()
+                RegisterView(onSuccess: onSuccess)
                     .navigationTitle("Registrierung")
                     .navigationBarTitleDisplayMode(.inline)
             }
         }
     }
 
-    // MARK: - Login-Logik (Demo)
+    // MARK: - Login-Logik
     private func login() {
-        let u = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !u.isEmpty, !p.isEmpty else {
-            errorMessage = "Bitte Benutzername und Passwort eingeben."
+        guard !e.isEmpty, !p.isEmpty else {
+            errorMessage = "Bitte E-Mail und Passwort eingeben."
             return
         }
 
-        // Reine Demo: akzeptiere nur die festen Demo-Zugangsdaten
-        if u == demoUsername && p == demoPassword {
-            errorMessage = nil
-            onSuccess()
-        } else {
-            errorMessage = "Ungültige Zugangsdaten."
+        guard e.contains("@") && e.contains(".") else {
+            errorMessage = "Bitte eine gültige E-Mail eingeben."
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        Task {
+            do {
+                let authService = AuthService()
+                let user = try await authService.signIn(email: e, password: p)
+                
+                await MainActor.run {
+                    isLoading = false
+                    print("✅ Login erfolgreich: \(user.display_name)")
+                    onSuccess()
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = "Anmeldung fehlgeschlagen: \(error.localizedDescription)"
+                }
+            }
         }
     }
 }
 
-// Schlanke, interne Demo-Registrierungsansicht (keine Persistenz, nur UI)
-private struct DemoRegisterView: View {
+struct RegisterView: View {
+    let onSuccess: () -> Void
+    
     @State private var email = ""
-    @State private var newUsername = ""
-    @State private var newPassword = ""
+    @State private var name = ""
+    @State private var password = ""
     @State private var confirmPassword = ""
-
-    // Einfache Demo-Validierung
-    private var canSubmit: Bool {
-        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let u = newUsername.trimmingCharacters(in: .whitespacesAndNewlines)
-        let p = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        let c = confirmPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        let emailLooksValid = e.contains("@") && e.contains(".")
-        return !e.isEmpty && emailLooksValid &&
-               !u.isEmpty &&
-               !p.isEmpty &&
-               !c.isEmpty &&
-               p == c
-    }
+    @State private var isLoading = false
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -204,8 +208,8 @@ private struct DemoRegisterView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Benutzername").font(.subheadline).foregroundStyle(.secondary)
-                    TextField("Bitte Benutzername eingeben", text: $newUsername)
+                    Text("Anzeigename").font(.subheadline).foregroundStyle(.secondary)
+                    TextField("Bitte Anzeigename eingeben", text: $name)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
@@ -219,7 +223,7 @@ private struct DemoRegisterView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Passwort").font(.subheadline).foregroundStyle(.secondary)
-                    SecureField("Mind. 4 Zeichen", text: $newPassword)
+                    SecureField("Mind. 6 Zeichen", text: $password)
                         .textContentType(.newPassword)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
@@ -247,18 +251,30 @@ private struct DemoRegisterView: View {
             }
             .padding(.horizontal, 20)
 
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             VStack(spacing: 12) {
                 Button {
-                    // reine Demo – keine Persistenz
-                    print("Account erstellt (Demo).")
+                    register()
                 } label: {
-                    Text("Account erstellen")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                    if isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Account erstellen")
+                            .font(.headline)
+                    }
                 }
-                .buttonStyle(.borderedProminent) // gleicher Stil wie „Anmelden“
-                .disabled(!canSubmit)            // nur aktiv, wenn alle 4 Felder korrekt sind
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSubmit || isLoading)
             }
             .padding(.horizontal, 20)
 
@@ -266,6 +282,46 @@ private struct DemoRegisterView: View {
         }
         .padding(.vertical, 24)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
+    }
+
+    private var canSubmit: Bool {
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let c = confirmPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let emailValid = e.contains("@") && e.contains(".")
+        return !e.isEmpty && emailValid &&
+               !n.isEmpty &&
+               !p.isEmpty && p.count >= 6 &&
+               !c.isEmpty && p == c
+    }
+
+    private func register() {
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = password.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        isLoading = true
+        errorMessage = nil
+
+        Task {
+            do {
+                let authService = AuthService()
+                let user = try await authService.signUp(email: e, password: p, name: n)
+                
+                await MainActor.run {
+                    isLoading = false
+                    print("✅ Registrierung erfolgreich: \(user.display_name)")
+                    onSuccess()
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = "Registrierung fehlgeschlagen: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 }
 
