@@ -4,7 +4,7 @@ import Supabase
 struct SettingsView: View {
     // Speichert die Auswahl persistent
     @AppStorage("appAppearance") private var appAppearance: String = "system"
-    @State private var isInserting = false
+    @State private var isLoading = false
     @State private var alertMessage: String?
 
     var body: some View {
@@ -29,27 +29,99 @@ struct SettingsView: View {
             
             // Hintergünde
             Section("Hintergrund") {
-                
+                // Deine Hintergrund-Einstellungen hier
             }
 
             Section("App") {
-                Toggle(isOn: .constant(true)) { Text("Benachrichtigungen") }
-                Toggle(isOn: .constant(false)) { Text("Experimentelle Features") }
+                Toggle(isOn: .constant(true)) {
+                    Text("Benachrichtigungen")
+                }
+                Toggle(isOn: .constant(false)) {
+                    Text("Experimentelle Features")
+                }
+                
                 Button {
                     Task { await testSupabaseInsert() }
                 } label: {
-                    Text("Insert Test")
+                    if isLoading {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Text("Insert Test")
+                    }
+                }
+                .disabled(isLoading)
+                
+                // Optional: SignUp Test Button
+                Button {
+                    Task { await testSignUp() }
+                } label: {
+                    Text("SignUp Test")
                 }
             }
 
             Section {
-                Button(role: .destructive) { } label: { Text("Abmelden") }
+                Button(role: .destructive) {
+                    // Abmelden Logik hier
+                } label: {
+                    Text("Abmelden")
+                }
             }
         }
         .navigationTitle("Einstellungen")
+        .alert("Ergebnis", isPresented: .constant(alertMessage != nil)) {
+            Button("OK") { alertMessage = nil }
+        } message: {
+            if let message = alertMessage {
+                Text(message)
+            }
+        }
     }
 
-    // MARK: - Helpers
+    // MARK: - Test Methods
+    @MainActor
+    private func testSignUp() async {
+        guard !isLoading else { return }
+        isLoading = true
+        
+        do {
+            let authService = AuthService()
+            let randomId = Int.random(in: 1...10000)
+            let user = try await authService.signUp(
+                email: "testuser\(randomId)@gmail.com",
+                password: "SecurePassword123!",
+                name: "Test User \(randomId)"  // Wird als display_name gespeichert
+            )
+            
+            alertMessage = "✅ SignUp Erfolg!\nDisplay Name: \(user.display_name)\nID: \(user.id)"
+        } catch {
+            alertMessage = "❌ Fehler: \(error.localizedDescription)"
+        }
+        isLoading = false
+    }
+
+    @MainActor
+    private func testSupabaseInsert() async {
+        guard !isLoading else { return }
+        isLoading = true
+        
+        do {
+            // ✅ display_name statt name
+            let testUser = User(
+                id: UUID(),
+                display_name: "TestUser \(Int.random(in: 1...1000))"
+            )
+            
+            try await supabase.from("user")
+                .insert(testUser)
+                .execute()
+            alertMessage = "✅ Erfolg! User in Tabelle eingefügt"
+        } catch {
+            alertMessage = "❌ Fehler: \(error.localizedDescription)"
+        }
+        isLoading = false
+    }
+    // MARK: - Appearance Methods
 
     private func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
         Button {
@@ -82,21 +154,6 @@ struct SettingsView: View {
         case "dark":  setAppearance(.dark)
         default:      setAppearance(.unspecified)
         }
-    }
-
-    @MainActor
-    private func testSupabaseInsert() async {
-        guard !isInserting else { return }
-        isInserting = true
-        do {
-            try await supabase.from("user")
-                .insert(["display_name": "hamed"])
-                .execute()
-            alertMessage = "Neue Zeile in 'user' mit display_name = 'hamed' erstellt."
-        } catch {
-            alertMessage = "Fehler beim Insert: \(error.localizedDescription)"
-        }
-        isInserting = false
     }
 }
 
