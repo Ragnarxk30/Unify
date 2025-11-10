@@ -59,10 +59,21 @@ struct SettingsView: View {
                     Text("SignUp Test")
                 }
             }
+            
+            @EnvironmentObject var session: SessionStore
 
             Section {
                 Button(role: .destructive) {
-                    // Abmelden Logik hier
+                    Task {
+                        do {
+                            try await SupabaseAuthRepository().signOut()
+                            await MainActor.run { session.markSignedOut() }
+                            alertMessage = "✅ Erfolgreich abgemeldet."
+                            // TODO: hier ggf. zur Login-View navigieren
+                        } catch {
+                            alertMessage = "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
+                        }
+                    }
                 } label: {
                     Text("Abmelden")
                 }

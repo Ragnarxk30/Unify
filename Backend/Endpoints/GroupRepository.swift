@@ -10,7 +10,7 @@ import Foundation
 
 //Blueprint für die Group-Endpoints
 protocol GroupRepository {
-    func create(name: String, owner_id: UUID) async throws
+    func create(name: String) async throws
     //func rename(groupId: UUID, to newName: String) async throws
     //func delete(groupId: UUID) async throws
 

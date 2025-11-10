@@ -24,7 +24,15 @@ struct GroupsView: View {
         }
         .sheet(isPresented: $showCreate) {
             CreateGroupSheet { name, _ids in
-                vm.createGroup(name: name, invited: _ids)
+                // vm.createGroup(name: name, invited: _ids)
+                // V1: nur Gruppe erstellen (Einladungen folgen später)
+                Task {
+                    do {
+                        try await SupabaseGroupRepository().create(name: name)
+                    } catch {
+                        print("Fehler beim Erstellen der Gruppe:", error.localizedDescription)
+                    }
+                }
             }
             .presentationDetents([.medium])
         }
