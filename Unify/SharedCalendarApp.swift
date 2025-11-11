@@ -2,18 +2,21 @@ import SwiftUI
 
 @main
 struct SharedCalendarApp: App {
-    @State private var isLoggedIn: Bool = false
+    @StateObject private var session = SessionStore()
 
     var body: some Scene {
         WindowGroup {
-            if isLoggedIn {
-                RootTabView()
-            } else {
-                LoginView {
-                    // Wird aufgerufen, wenn der Demo-Login erfolgreich war
-                    isLoggedIn = true
+            SwiftUI.Group {
+                if session.isSignedIn {
+                    RootTabView()
+                } else {
+                    // LoginView ruft onSuccess nach erfolgreichem Login
+                    LoginView {
+                        session.markSignedIn() // optional, Polling würde es sonst selbst merken
+                    }
                 }
             }
+            .environmentObject(session)
         }
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 import Supabase
 
 struct SettingsView: View {
+    @EnvironmentObject var session: SessionStore
     // Speichert die Auswahl persistent
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
@@ -59,10 +60,19 @@ struct SettingsView: View {
                     Text("SignUp Test")
                 }
             }
-
+            
             Section {
                 Button(role: .destructive) {
-                    // Abmelden Logik hier
+                    Task {
+                        do {
+                            try await SupabaseAuthRepository().signOut()
+                            await MainActor.run { session.markSignedOut() }
+                            alertMessage = "✅ Erfolgreich abgemeldet."
+                            // TODO: hier ggf. zur Login-View navigieren
+                        } catch {
+                            alertMessage = "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
+                        }
+                    }
                 } label: {
                     Text("Abmelden")
                 }
@@ -159,4 +169,5 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+        .environmentObject(SessionStore())
 }

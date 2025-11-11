@@ -35,3 +35,4 @@ struct Group: Identifiable, Hashable {
     var events: [Event]
     var messages: [Message]
 }
+
