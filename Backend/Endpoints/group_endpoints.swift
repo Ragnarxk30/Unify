@@ -1,9 +1,7 @@
-//
 //  group_endpoints.swift
 //  Unify
 //
 //  Created by Jonas Dunkenberger on 04.11.25.
-//
 
 import Foundation
 import Supabase
@@ -32,10 +30,10 @@ struct SupabaseGroupRepository: GroupRepository {
     }
 
     // MARK: - CRUD
-    func create(name: String, owner_id: UUID) async throws {
+    func create(name: String) async throws {
         // auskommentiert bis wir uns richtig einloggen können
-        //let ownerId = try await auth.currentUserId()
-        let ownerId = owner_id
+        let ownerId = try await auth.currentUserId()
+        //let ownerId = owner_id
         
         // <- Richtige Label verwenden
         let payload = CreateGroupPayload(name: name, ownerId: ownerId)
@@ -44,7 +42,6 @@ struct SupabaseGroupRepository: GroupRepository {
             .from(groupsTable)
             .insert(payload)
             .execute()
-
     }
 
     func rename(groupId: UUID, to newName: String) async throws {
@@ -72,5 +69,4 @@ struct SupabaseGroupRepository: GroupRepository {
         
     }
     
-    // … deine restlichen Methoden bleiben wie sie sind …
 }
