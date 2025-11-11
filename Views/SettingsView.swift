@@ -2,6 +2,7 @@ import SwiftUI
 import Supabase
 
 struct SettingsView: View {
+    @EnvironmentObject var session: SessionStore
     // Speichert die Auswahl persistent
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
@@ -60,8 +61,6 @@ struct SettingsView: View {
                 }
             }
             
-            @EnvironmentObject var session: SessionStore
-
             Section {
                 Button(role: .destructive) {
                     Task {
@@ -170,4 +169,5 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+        .environmentObject(SessionStore())
 }

@@ -100,12 +100,14 @@ struct LoginView: View {
                                 .tint(.white)
                         } else {
                             Text("Anmelden")
-                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
                         }
+                            
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
+                
+                    .padding(.horizontal, 3)
                     .disabled(isLoading || email.isEmpty || password.isEmpty)
 
                     Button {
