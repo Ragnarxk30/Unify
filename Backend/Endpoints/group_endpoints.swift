@@ -31,11 +31,8 @@ struct SupabaseGroupRepository: GroupRepository {
 
     // MARK: - CRUD
     func create(name: String) async throws {
-        // auskommentiert bis wir uns richtig einloggen können
         let ownerId = try await auth.currentUserId()
-        //let ownerId = owner_id
         
-        // <- Richtige Label verwenden
         let payload = CreateGroupPayload(name: name, ownerId: ownerId)
 
         try await db
@@ -52,15 +49,15 @@ struct SupabaseGroupRepository: GroupRepository {
     func delete(groupId: UUID) async throws {
         
     }
-    
-    //func groupsOwnedBy(userId: UUID, limit: Int, offset: Int) async throws -> [Group] {
+    /*
+    func groupsOwnedBy(userId: UUID, limit: Int, offset: Int) async throws -> [Group] {
         
-    //}
+    }
     
-    //func groupsForMember(userId: UUID, limit: Int, offset: Int) async throws -> [Group] {
+    func groupsForMember(userId: UUID, limit: Int, offset: Int) async throws -> [Group] {
         
-    //}
-    
+    }
+    */
     func addMember(groupId: UUID, userId: UUID, role: String) async throws {
         
     }

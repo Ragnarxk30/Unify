@@ -18,6 +18,7 @@ public class AuthService {
                 password: password,
                 redirectTo: redirect
             )
+        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 Sekunde
 
             // public.user anlegen (FK = auth.users.id)
             let appUser = AppUser(id: resp.user.id, display_name: name)
