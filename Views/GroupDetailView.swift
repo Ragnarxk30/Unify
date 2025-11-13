@@ -66,3 +66,39 @@ struct GroupDetailView: View {
         }
     }
 }
+
+
+/*
+ Code der nachher hinter dem Button Gruppe Umbenennen liegen muss:
+ 
+ Button("Gruppe umbenennen") {
+     Task {
+         do {
+             // rename ausführen
+             try await SupabaseGroupRepository()
+                 .rename(groupId: group.id, to: newName)
+
+             // Optional: Lokales ViewModel aktualisieren
+             if let index = vm.groups.firstIndex(where: { $0.id == group.id }) {
+                 vm.groups[index].name = newName
+             }
+
+         } catch {
+             print("Fehler beim Umbenennen der Gruppe:", error.localizedDescription)
+         }
+     }
+ }
+ 
+ 
+ //Button für Gruppe löschen noch einbauen dann:
+ 
+ Button("Gruppe löschen") {
+     Task {
+         do {
+             try await SupabaseGroupRepository().delete(groupId: group.id)
+         } catch {
+             print("Fehler beim Löschen der Gruppe:", error)
+         }
+     }
+ }
+ */

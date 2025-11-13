@@ -28,7 +28,7 @@ struct GroupsView: View {
                 // V1: nur Gruppe erstellen (Einladungen folgen später)
                 Task {
                     do {
-                        try await SupabaseGroupRepository().create(name: name)
+                        try await SupabaseGroupRepository().create(name: name, invitedAppleIds: _ids)
                     } catch {
                         print("Fehler beim Erstellen der Gruppe:", error.localizedDescription)
                     }
