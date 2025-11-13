@@ -116,10 +116,11 @@ struct SettingsView: View {
         isLoading = true
         
         do {
-            // ✅ display_name statt name
+            // ✅ display_name und email
             let testUser = AppUser(
                 id: UUID(),
-                display_name: "TestUser \(Int.random(in: 1...1000))"
+                display_name: "TestUser \(Int.random(in: 1...1000))",
+                email: "test\(Int.random(in: 1...1000))@example.com" // Email hinzugefügt
             )
             
             try await supabase.from("user")
@@ -131,6 +132,7 @@ struct SettingsView: View {
         }
         isLoading = false
     }
+
     // MARK: - Appearance Methods
 
     private func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {

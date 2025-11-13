@@ -2,10 +2,11 @@ import Foundation
 import Combine
 import Supabase
 
-@MainActor
+@MainActor  // ✅ WICHTIG: Hier wieder hinzufügen
 final class SessionStore: ObservableObject {
     private let authRepo: AuthRepository = SupabaseAuthRepository()
     @Published private(set) var isSignedIn = false
+    @Published private(set) var isWaitingForEmailConfirmation = false // ✅ Neuer Status
 
     private var pollTask: Task<Void, Never>?
 
@@ -26,6 +27,10 @@ final class SessionStore: ObservableObject {
             }
         }
     }
+    
+    func setWaitingForEmailConfirmation(_ waiting: Bool) {
+        isWaitingForEmailConfirmation = waiting
+    }
 
     /// Prüft/aktualisiert die Session und setzt die Flag entsprechend.
     func refreshSession() async {
@@ -38,13 +43,13 @@ final class SessionStore: ObservableObject {
     }
 
     func signOut() async {
-            do {
-                try await authRepo.signOut()
-            } catch {
-                // optional logging
-            }
-            isSignedIn = false
+        do {
+            try await authRepo.signOut()
+        } catch {
+            // optional logging
         }
+        isSignedIn = false
+    }
 
     /// Manuelle Setter (falls du sie für bestimmte Flows brauchst)
     func markSignedIn()  { isSignedIn = true }
