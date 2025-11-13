@@ -2,7 +2,6 @@ import Supabase
 import Foundation
 
 public class AuthService {
-    // ✅ Verwendet die globale supabase Instanz
     private let client: SupabaseClient
     
     public init() {
@@ -10,22 +9,35 @@ public class AuthService {
     }
     
     func signUp(email: String, password: String, name: String) async throws -> AppUser {
-            let redirect = URL(string: "https://gtyyrkwfkzzyhsearkgn.supabase.co/functions/v1/confirm")!
+        let redirect = URL(string: "unify://auth-callback")!
 
-            // ⬇️ Redirect an Supabase übergeben
-            let resp = try await client.auth.signUp(
-                email: email,
-                password: password,
-                redirectTo: redirect
-            )
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 Sekunde
-
-            // public.user anlegen (FK = auth.users.id)
-            let appUser = AppUser(id: resp.user.id, display_name: name)
-            try await client.from("user").insert(appUser).execute()
-
-            return appUser
+        let resp = try await client.auth.signUp(
+            email: email,
+            password: password,
+            redirectTo: redirect
+        )
+        
+        // Kurze Pause beibehalten um Race Condition zu vermeiden
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 Sekunden
+        
+        // Prüfen ob User in auth.users vorhanden ist
+        do {
+            let session = try await client.auth.session
+            print("Auth user erfolgreich erstellt: \(session.user.id)")
+        } catch {
+            print("Auth user noch nicht ready, warte weiter...")
+            try await Task.sleep(nanoseconds: 500_000_000) // Nochmal 0.5s
         }
+
+        let appUser = AppUser(
+            id: resp.user.id,
+            display_name: name,
+            email: email
+        )
+        try await client.from("user").insert(appUser).execute()
+
+        return appUser
+    }
     
     // MARK: - Sign In (Login)
         func signIn(email: String, password: String) async throws -> AppUser {

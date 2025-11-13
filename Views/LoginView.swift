@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     let onSuccess: () -> Void
+    @EnvironmentObject private var session: SessionStore  // ✅ SessionStore hinzugefügt
 
     @State private var email: String = ""
     @State private var password: String = ""
@@ -105,8 +106,7 @@ struct LoginView: View {
                         }
                             
                     }
-                    .buttonStyle(.bordered)
-                
+                    .buttonStyle(.borderedProminent)
                     .padding(.horizontal, 3)
                     .disabled(isLoading || email.isEmpty || password.isEmpty)
 
@@ -127,6 +127,7 @@ struct LoginView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationDestination(isPresented: $showRegister) {
                 RegisterView(onSuccess: onSuccess)
+                    .environmentObject(session)  // ✅ SessionStore an RegisterView weitergeben
                     .navigationTitle("Registrierung")
                     .navigationBarTitleDisplayMode(.inline)
             }
@@ -173,6 +174,7 @@ struct LoginView: View {
 
 struct RegisterView: View {
     let onSuccess: () -> Void
+    @EnvironmentObject private var session: SessionStore  // ✅ SessionStore hinzugefügt
     
     @State private var email = ""
     @State private var name = ""
@@ -309,17 +311,23 @@ struct RegisterView: View {
 
         Task {
             do {
+                // ✅ Loading für Email-Bestätigung starten
+                session.setWaitingForEmailConfirmation(true)
+                
                 let authService = AuthService()
                 let user = try await authService.signUp(email: e, password: p, name: n)
                 
                 await MainActor.run {
                     isLoading = false
                     print("✅ Registrierung erfolgreich: \(user.display_name)")
-                    onSuccess()
+                    // ❌ KEIN onSuccess() hier - warte auf Email-Bestätigung!
+                    // Der User bleibt im Loading Screen bis Email bestätigt ist
                 }
             } catch {
                 await MainActor.run {
                     isLoading = false
+                    // ✅ Bei Fehler Loading beenden
+                    session.setWaitingForEmailConfirmation(false)
                     errorMessage = "Registrierung fehlgeschlagen: \(error.localizedDescription)"
                 }
             }
@@ -331,4 +339,5 @@ struct RegisterView: View {
     LoginView {
         // Preview: no-op
     }
+    .environmentObject(SessionStore())  // ✅ Für Preview
 }
