@@ -54,7 +54,7 @@ public class AuthService {
             // → User-Row laden
             let user: AppUser = try await client
                 .from("user")
-                .select("id, display_name")
+                .select("id, display_name, email")
                 .eq("id", value: uid)
                 .single()
                 .execute()

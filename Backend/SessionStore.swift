@@ -35,8 +35,16 @@ final class SessionStore: ObservableObject {
     /// Prüft/aktualisiert die Session und setzt die Flag entsprechend.
     func refreshSession() async {
         do {
-            _ = try await supabase.auth.refreshSession() // ✅ Fragt Supabase-Server an
-            isSignedIn = true
+            let session = try await supabase.auth.session
+            
+            if session.isExpired {
+                // ❌ Session abgelaufen
+                isSignedIn = false
+            } else {
+                // ✅ Session gültig
+                isSignedIn = true
+            }
+            
         } catch {
             isSignedIn = false
         }
