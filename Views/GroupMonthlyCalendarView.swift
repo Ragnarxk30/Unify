@@ -2,17 +2,14 @@ import SwiftUI
 
 struct GroupMonthlyCalendarView: View {
     let groupID: UUID
-    @ObservedObject private var groupsVM: GroupsViewModel
-
+    
     // Kalenderstatus
-    @State private var monthAnchor: Date = Date() // aktueller Monat
+    @State private var monthAnchor: Date = Date()
     @State private var selectedDay: Date? = nil
     @State private var showDaySheet: Bool = false
-
-    init(groupID: UUID, groupsVM: GroupsViewModel) {
-        self.groupID = groupID
-        self._groupsVM = ObservedObject(initialValue: groupsVM)
-    }
+    @State private var events: [Event] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
 
     private var cal: Calendar { Calendar.current }
     private var monthInterval: DateInterval {
@@ -33,11 +30,12 @@ struct GroupMonthlyCalendarView: View {
         return (weekday - first + 7) % 7
     }
 
+    // ✅ Korrigierte events-Methode ohne GroupsViewModel
     private func events(on day: Date) -> [Event] {
-        guard let group = groupsVM.groups.first(where: { $0.id == groupID }) else { return [] }
-        return group.events.filter {
-            cal.isDate($0.start, inSameDayAs: day) || cal.isDate($0.end, inSameDayAs: day) ||
-            ($0.start <= day && day <= $0.end && cal.isDate($0.start, equalTo: day, toGranularity: .month))
+        return events.filter { event in
+            cal.isDate(event.start, inSameDayAs: day) ||
+            cal.isDate(event.end, inSameDayAs: day) ||
+            (event.start <= day && day <= event.end && cal.isDate(event.start, equalTo: day, toGranularity: .month))
         }
         .sorted { $0.start < $1.start }
     }
@@ -122,6 +120,32 @@ struct GroupMonthlyCalendarView: View {
                     .presentationDetents([.medium])
             }
         }
+        .onAppear {
+            Task {
+                await loadEvents()
+            }
+        }
+    }
+
+    // MARK: - Events laden
+    @MainActor
+    private func loadEvents() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            // ✅ Später: Echte Events von Supabase laden
+            // events = try await CalendarEndpoints.fetchEvents(for: groupID)
+            
+            // ⏳ Temporär: Leere Liste
+            events = []
+            print("✅ Events für Gruppe \(groupID) geladen")
+        } catch {
+            errorMessage = error.localizedDescription
+            print("❌ Fehler beim Laden der Events: \(error)")
+        }
+        
+        isLoading = false
     }
 
     // Helpers

@@ -31,10 +31,9 @@ final class ColorManager: ObservableObject {
         available = palette
     }
 
-    // Main API: returns a bubble color for a user.
-    // - Own user (MockData.me) is always blue and never consumes from the palette.
-    func color(for user: UserProfile) -> Color {
-        if user.id == MockData.me.id {
+    // ✅ Korrigierte API: Eigene Nachrichten sind immer blau
+    func color(for user: AppUser, isCurrentUser: Bool = false) -> Color {
+        if isCurrentUser {
             return .blue
         }
         if let assigned = assignments[user.id] {
@@ -42,6 +41,19 @@ final class ColorManager: ObservableObject {
         }
         let newColor = takeRandomAvailableColor()
         assignments[user.id] = newColor
+        return newColor
+    }
+
+    // ✅ Alternative Methode für temporäre UserProfile (falls noch benötigt)
+    func color(for userProfile: UserProfile, isCurrentUser: Bool = false) -> Color {
+        if isCurrentUser {
+            return .blue
+        }
+        if let assigned = assignments[userProfile.id] {
+            return assigned
+        }
+        let newColor = takeRandomAvailableColor()
+        assignments[userProfile.id] = newColor
         return newColor
     }
 
@@ -55,6 +67,12 @@ final class ColorManager: ObservableObject {
         let chosen = available[idx]
         available.remove(at: idx)
         return chosen
+    }
+
+    // ✅ Reset-Funktion für Logout/Login
+    func reset() {
+        assignments.removeAll()
+        resetAvailable()
     }
 }
 

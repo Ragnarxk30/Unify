@@ -6,13 +6,43 @@ enum CalendarMode: String, CaseIterable, Hashable {
 }
 
 struct CalendarListView: View {
-    @ObservedObject var vm: CalendarViewModel
+    @State private var events: [Event] = []
     @State private var mode: CalendarMode = .list
+    @State private var isLoading = true
+    @State private var errorMessage: String?
 
-    // Einheitlicher Seitenrand für alle Geräte
     private let sideInset: CGFloat = 20
 
     var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Lade Termine...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage = errorMessage {
+                VStack {
+                    Text("Fehler beim Laden der Termine")
+                        .font(.headline)
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button("Erneut versuchen") {
+                        Task {
+                            await loadEvents()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+            } else {
+                calendarContent
+            }
+        }
+        .task {
+            await loadEvents()
+        }
+    }
+    
+    private var calendarContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Header mit Seitenrand
@@ -25,17 +55,13 @@ struct CalendarListView: View {
 
                     Spacer(minLength: 8)
 
-                    SegmentedToggle(
-                        options: CalendarMode.allCases,
-                        selection: $mode,
-                        title: { $0.rawValue },
-                        systemImage: {
-                            switch $0 {
-                            case .list: return "list.bullet"
-                            case .calendar: return "calendar"
-                            }
+                    // ✅ Einfache Picker-Lösung statt SegmentedToggle
+                    Picker("Ansicht", selection: $mode) {
+                        ForEach(CalendarMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
                         }
-                    )
+                    }
+                    .pickerStyle(.segmented)
                     .layoutPriority(1)
                 }
                 .padding(.horizontal, sideInset)
@@ -44,23 +70,18 @@ struct CalendarListView: View {
                 // Inhalt
                 if mode == .list {
                     VStack(spacing: 16) {
-                        ForEach(vm.events) { event in
-                            EventCard(event: event)
-                                .frame(maxWidth: .infinity) // füllt den verfügbaren Bereich
+                        if events.isEmpty {
+                            emptyStateView
+                        } else {
+                            ForEach(events) { event in
+                                EventCard(event: event)
+                                    .frame(maxWidth: .infinity)
+                            }
                         }
                     }
-                    .padding(.horizontal, sideInset) // EINMALIGER Außenabstand links/rechts
-                } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.secondary)
-                        Text("Kalender-Ansicht kommt später")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 40)
                     .padding(.horizontal, sideInset)
+                } else {
+                    calendarPlaceholderView
                 }
 
                 Spacer(minLength: 24)
@@ -71,10 +92,60 @@ struct CalendarListView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
     }
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Keine Termine")
+                .font(.headline)
+            Text("Erstelle deinen ersten Termin in einer Gruppe")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, 60)
+    }
+    
+    private var calendarPlaceholderView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "calendar")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Kalender-Ansicht kommt später")
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
+        .padding(.horizontal, sideInset)
+    }
+
+    // MARK: - Events laden
+    @MainActor
+    private func loadEvents() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            // ✅ Später: Echte Events von Supabase laden
+            // events = try await CalendarEndpoints.fetchUserEvents()
+            
+            // ⏳ Temporär: Leere Liste
+            events = []
+            print("✅ Persönliche Events geladen")
+        } catch {
+            errorMessage = error.localizedDescription
+            print("❌ Fehler beim Laden der Events: \(error)")
+        }
+        
+        isLoading = false
+    }
 }
 
 private struct EventCard: View {
     let event: Event
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(event.title)

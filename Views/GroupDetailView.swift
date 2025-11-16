@@ -6,33 +6,28 @@ enum GroupDetailTab: String, CaseIterable, Hashable {
 }
 
 struct GroupDetailView: View {
-    let group: Group
+    let group: AppGroup // ✅ AppGroup statt Group
     @State private var selected: GroupDetailTab = .events
-    @ObservedObject private var groupsVM: GroupsViewModel
-
     @State private var showAddEvent = false
-
-    init(group: Group, groupsVM: GroupsViewModel) {
-        self.group = group
-        self._groupsVM = ObservedObject(initialValue: groupsVM)
-    }
 
     var body: some View {
         VStack(spacing: 0) {
-            SegmentedToggle(options: GroupDetailTab.allCases, selection: $selected, title: { $0.rawValue }, systemImage: {
-                switch $0 {
-                case .events: return "calendar"
-                case .chat: return "text.bubble"
+            // ✅ Einfache Picker-Lösung statt SegmentedToggle
+            Picker("Ansicht", selection: $selected) {
+                ForEach(GroupDetailTab.allCases, id: \.self) { tab in
+                    Label(tab.rawValue, systemImage: systemImage(for: tab))
+                        .tag(tab)
                 }
-            })
+            }
+            .pickerStyle(.segmented)
             .padding(.horizontal, 20)
             .padding(.top, 12)
 
             switch selected {
             case .events:
-                GroupEventsView(groupID: group.id, groupsVM: groupsVM)
+                GroupEventsView(groupID: group.id) // ✅ Ohne GroupsViewModel
             case .chat:
-                GroupChatView(vm: ChatViewModel(group: group, groupsVM: groupsVM))
+                GroupChatView(group: group) // ✅ Ohne ChatViewModel
             }
         }
         .navigationTitle(group.name)
@@ -45,60 +40,21 @@ struct GroupDetailView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Neuen Termin anlegen (Demo)")
+                .accessibilityLabel("Neuen Termin anlegen")
             }
         }
         .sheet(isPresented: $showAddEvent) {
-            // Einfaches Demo-Fenster
-            VStack(spacing: 16) {
-                Text("Termineingabe kommt")
-                    .font(.title3).bold()
-                Text("Hier wird später das Formular zum Anlegen eines Termins erscheinen.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                Button("Schließen") {
-                    showAddEvent = false
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(24)
-            .presentationDetents([.medium])
+            // ✅ GroupEventsView für Event-Erstellung verwenden
+            GroupEventsView(groupID: group.id)
+                .presentationDetents([.medium, .large])
+        }
+    }
+
+    // ✅ Helper für System-Icons
+    private func systemImage(for tab: GroupDetailTab) -> String {
+        switch tab {
+        case .events: return "calendar"
+        case .chat: return "text.bubble"
         }
     }
 }
-
-
-/*
- Code der nachher hinter dem Button Gruppe Umbenennen liegen muss:
- 
- Button("Gruppe umbenennen") {
-     Task {
-         do {
-             // rename ausführen
-             try await SupabaseGroupRepository()
-                 .rename(groupId: group.id, to: newName)
-
-             // Optional: Lokales ViewModel aktualisieren
-             if let index = vm.groups.firstIndex(where: { $0.id == group.id }) {
-                 vm.groups[index].name = newName
-             }
-
-         } catch {
-             print("Fehler beim Umbenennen der Gruppe:", error.localizedDescription)
-         }
-     }
- }
- 
- 
- //Button für Gruppe löschen noch einbauen dann:
- 
- Button("Gruppe löschen") {
-     Task {
-         do {
-             try await SupabaseGroupRepository().delete(groupId: group.id)
-         } catch {
-             print("Fehler beim Löschen der Gruppe:", error)
-         }
-     }
- }
- */

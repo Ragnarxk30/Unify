@@ -1,18 +1,15 @@
 import SwiftUI
 
 struct RootTabView: View {
-    @StateObject private var calendarVM = CalendarViewModel()
-    @StateObject private var groupsVM = GroupsViewModel()
-
     var body: some View {
         TabView {
             NavigationStack {
-                CalendarListView(vm: calendarVM)
+                CalendarListView() // ✅ Ohne ViewModel
             }
             .tabItem { Label("Mein Kalender", systemImage: "calendar") }
 
             NavigationStack {
-                GroupsView(vm: groupsVM)
+                GroupsView() // ✅ Ohne ViewModel
             }
             .tabItem { Label("Gruppen", systemImage: "person.3") }
 
