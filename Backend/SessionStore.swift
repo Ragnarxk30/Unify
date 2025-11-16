@@ -9,21 +9,32 @@ final class SessionStore: ObservableObject {
     @Published private(set) var isWaitingForEmailConfirmation = false
 
     private var pollTask: Task<Void, Never>?
+    private let refreshInterval: TimeInterval = 60 * 15 // 15 Minuten
 
     init() {
-        startPolling()
+        checkInitialSession()
     }
 
-    deinit { pollTask?.cancel() }
+    deinit {
+        pollTask?.cancel()
+    }
 
-    /// Startet ein Polling im 10‑Sekunden‑Takt und validiert die Supabase‑Session.
-    func startPolling() {
+    /// Prüft die Session beim App-Start
+    private func checkInitialSession() {
+        Task {
+            await refreshSession()
+            startPolling() // Starte Polling nur nach initialer Prüfung
+        }
+    }
+
+    /// Startet Polling mit längerem Intervall
+    private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(refreshInterval * 1_000_000_000))
                 await self.refreshSession()
-                try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
             }
         }
     }
@@ -32,18 +43,33 @@ final class SessionStore: ObservableObject {
         isWaitingForEmailConfirmation = waiting
     }
 
-    /// Prüft/aktualisiert die Session und setzt die Flag entsprechend.
+    /// Prüft/aktualisiert die Session nur wenn nötig
     func refreshSession() async {
         do {
-            // ✅ IMMER versuchen zu refreshen (macht Supabase automatisch wenn nötig)
-            _ = try await supabase.auth.refreshSession()
+            let session = try await supabase.auth.session
+            
+            // ✅ Korrekte Prüfung: expiresAt ist bereits ein TimeInterval (Timestamp)
+            let currentTime = Date().timeIntervalSince1970
+            let timeUntilExpiry = session.expiresAt - currentTime
+            
+            if timeUntilExpiry < 300 { // 5 Minuten
+                _ = try await supabase.auth.refreshSession()
+                print("✅ Session refreshed (läuft in \(Int(timeUntilExpiry))s ab)")
+            } else {
+                print("🔐 Session noch \(Int(timeUntilExpiry))s gültig")
+            }
             isSignedIn = true
-            print("✅ Session refresh erfolgreich")
         } catch {
-            // ❌ Refresh fehlgeschlagen - User ist abgemeldet
+            // ❌ Session ungültig oder abgelaufen
             isSignedIn = false
-            print("❌ Session refresh fehlgeschlagen: \(error)")
+            print("❌ Session ungültig: \(error.localizedDescription)")
         }
+    }
+
+    /// Manuelles Refresh (z.B. beim App-Wechsel zurück)
+    func manualRefresh() async {
+        print("🔄 Manuelles Session Refresh")
+        await refreshSession()
     }
 
     func signOut() async {
@@ -55,16 +81,19 @@ final class SessionStore: ObservableObject {
         }
         isSignedIn = false
         isWaitingForEmailConfirmation = false
+        pollTask?.cancel() // ❌ Polling nach SignOut stoppen
     }
 
-    /// Manuelle Setter (falls du sie für bestimmte Flows brauchst)
+    /// Manuelle Setter
     func markSignedIn()  {
         isSignedIn = true
         isWaitingForEmailConfirmation = false
+        startPolling() // ✅ Polling nach Login starten
     }
     
     func markSignedOut() {
         isSignedIn = false
         isWaitingForEmailConfirmation = false
+        pollTask?.cancel() // ✅ Polling stoppen
     }
 }

@@ -90,13 +90,8 @@ struct GroupsView: View {
         errorMessage = nil
         
         do {
-            // ⏳ TEMPORÄR: Da fetchGroups noch nicht implementiert ist
-            // groups = try await groupRepo.fetchGroups()
-            
-            // ✅ Verwende groupsOwnedBy als temporäre Lösung
-            let userId = try await SupabaseAuthRepository().currentUserId()
-            groups = try await fetchGroupsForUser(userId: userId)
-            
+            // ✅ JETZT: fetchGroups verwenden der alle Mitgliedsgruppen lädt
+            groups = try await groupRepo.fetchGroups()
             print("✅ \(groups.count) Gruppen geladen")
         } catch {
             errorMessage = error.localizedDescription
@@ -106,9 +101,9 @@ struct GroupsView: View {
         isLoading = false
     }
     
-    // ✅ Temporäre Methode bis fetchGroups implementiert ist
+    // ❌ DIESE METHODE ENTFERNEN/LÖSCHEN - wird nicht mehr benötigt
+    /*
     private func fetchGroupsForUser(userId: UUID) async throws -> [AppGroup] {
-        // Hier die Query aus deinem GroupEndpoints verwenden
         let groups: [AppGroup] = try await supabase
             .from("group")
             .select("""
@@ -121,12 +116,13 @@ struct GroupsView: View {
                     email
                 )
             """)
-            .eq("owner_id", value: userId)
+            .eq("owner_id", value: userId)  // ← DAS WAR DAS PROBLEM!
             .execute()
             .value
         
         return groups
     }
+    */
 }
 
 private struct GroupRow: View {
@@ -186,7 +182,7 @@ private struct CreateGroupSheet: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Benutzer einladen").font(.headline)
-                TextField("E-Mails (durch Komma getrennt)", text: $invited) // ✅ E-Mails statt Apple IDs
+                TextField("E-Mails (durch Komma getrennt)", text: $invited)
                     .textFieldStyle(.roundedBorder)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
