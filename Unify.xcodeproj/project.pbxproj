@@ -37,11 +37,6 @@
 			path = Unify;
 			sourceTree = "<group>";
 		};
-		5BD087632EB8A45000AE44FC /* Models */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Models;
-			sourceTree = "<group>";
-		};
 		5BD087682EB8A45500AE44FC /* Screens */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Screens;
@@ -77,7 +72,6 @@
 				DD505AC02EBA5F9D002F1FEA /* Backend */,
 				5BD0878D2EB8AF5600AE44FC /* Assets.xcassets */,
 				5B4139192EAFAC1A009B4639 /* Unify */,
-				5BD087632EB8A45000AE44FC /* Models */,
 				5BD087682EB8A45500AE44FC /* Screens */,
 				5BD087732EB8A45800AE44FC /* Views */,
 				5BD0877C2EB8A4FA00AE44FC /* .gitignore */,
@@ -102,7 +96,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				5B4139192EAFAC1A009B4639 /* Unify */,
-				5BD087632EB8A45000AE44FC /* Models */,
 				5BD087682EB8A45500AE44FC /* Screens */,
 				5BD087732EB8A45800AE44FC /* Views */,
 				DD505AC02EBA5F9D002F1FEA /* Backend */,
