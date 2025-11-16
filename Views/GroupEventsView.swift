@@ -124,23 +124,20 @@ struct GroupEventsView: View {
         }
     }
     
-    // MARK: - Events laden
+    //Events laden
     @MainActor
     private func loadEvents() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
-            // ✅ Später: Echte Events von Supabase laden
-            // events = try await CalendarEndpoints.fetchEvents(for: groupID)
-            
-            // ⏳ Temporär: Leere Liste
-            events = []
+            let repo = SupabaseEventRepository()
+            events = try await repo.listForGroup(groupID)
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Fehler beim Laden der Events: \(error)")
+            print("❌ Fehler beim Laden der Events:", error)
         }
-        
+
         isLoading = false
     }
     

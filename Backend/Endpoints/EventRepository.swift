@@ -46,4 +46,7 @@ protocol EventRepository {
     
     /// Event löschen
     func delete(eventId: UUID) async throws
+    
+    /// Alle Events einer Gruppe laden (RLS regelt Sichtbarkeit)
+    func listForGroup(_ groupId: UUID) async throws -> [Event]
 }

@@ -32,7 +32,7 @@ struct AppGroup: Identifiable, Codable {
 struct Event: Identifiable, Codable {
     let id: UUID
     let title: String
-    let description: String?
+    let details: String?
     let start: Date
     let end: Date
     let group_id: UUID?
