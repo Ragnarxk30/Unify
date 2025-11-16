@@ -2,11 +2,11 @@ import Foundation
 import Combine
 import Supabase
 
-@MainActor  // ✅ WICHTIG: Hier wieder hinzufügen
+@MainActor
 final class SessionStore: ObservableObject {
     private let authRepo: AuthRepository = SupabaseAuthRepository()
     @Published private(set) var isSignedIn = false
-    @Published private(set) var isWaitingForEmailConfirmation = false // ✅ Neuer Status
+    @Published private(set) var isWaitingForEmailConfirmation = false
 
     private var pollTask: Task<Void, Never>?
 
@@ -35,31 +35,36 @@ final class SessionStore: ObservableObject {
     /// Prüft/aktualisiert die Session und setzt die Flag entsprechend.
     func refreshSession() async {
         do {
-            let session = try await supabase.auth.session
-            
-            if session.isExpired {
-                // ❌ Session abgelaufen
-                isSignedIn = false
-            } else {
-                // ✅ Session gültig
-                isSignedIn = true
-            }
-            
+            // ✅ IMMER versuchen zu refreshen (macht Supabase automatisch wenn nötig)
+            _ = try await supabase.auth.refreshSession()
+            isSignedIn = true
+            print("✅ Session refresh erfolgreich")
         } catch {
+            // ❌ Refresh fehlgeschlagen - User ist abgemeldet
             isSignedIn = false
+            print("❌ Session refresh fehlgeschlagen: \(error)")
         }
     }
 
     func signOut() async {
         do {
             try await authRepo.signOut()
+            print("✅ SignOut erfolgreich")
         } catch {
-            // optional logging
+            print("❌ SignOut Fehler: \(error)")
         }
         isSignedIn = false
+        isWaitingForEmailConfirmation = false
     }
 
     /// Manuelle Setter (falls du sie für bestimmte Flows brauchst)
-    func markSignedIn()  { isSignedIn = true }
-    func markSignedOut() { isSignedIn = false }
+    func markSignedIn()  {
+        isSignedIn = true
+        isWaitingForEmailConfirmation = false
+    }
+    
+    func markSignedOut() {
+        isSignedIn = false
+        isWaitingForEmailConfirmation = false
+    }
 }

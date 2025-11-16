@@ -7,11 +7,17 @@ struct SettingsView: View {
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
     @State private var alertMessage: String?
+    @State private var currentUser: AppUser? // ✅ Für den echten Usernamen
 
     var body: some View {
         Form {
             Section("Profil") {
-                Label("Angemeldet als: Ich", systemImage: "person.circle")
+                if let user = currentUser {
+                    // ✅ Echten Usernamen anzeigen
+                    Label("Angemeldet als: \(user.display_name)", systemImage: "person.circle")
+                } else {
+                    Label("Angemeldet als: Lade...", systemImage: "person.circle")
+                }
             }
             
             // Darstellungsmodus
@@ -40,25 +46,7 @@ struct SettingsView: View {
                 Toggle(isOn: .constant(false)) {
                     Text("Experimentelle Features")
                 }
-                
-                Button {
-                    Task { await testSupabaseInsert() }
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Text("Insert Test")
-                    }
-                }
-                .disabled(isLoading)
-                
-                // Optional: SignUp Test Button
-                Button {
-                    Task { await testSignUp() }
-                } label: {
-                    Text("SignUp Test")
-                }
+                // ✅ Test-Buttons entfernt
             }
             
             Section {
@@ -68,7 +56,6 @@ struct SettingsView: View {
                             try await SupabaseAuthRepository().signOut()
                             await MainActor.run { session.markSignedOut() }
                             alertMessage = "✅ Erfolgreich abgemeldet."
-                            // TODO: hier ggf. zur Login-View navigieren
                         } catch {
                             alertMessage = "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
                         }
@@ -86,51 +73,31 @@ struct SettingsView: View {
                 Text(message)
             }
         }
-    }
-
-    // MARK: - Test Methods
-    @MainActor
-    private func testSignUp() async {
-        guard !isLoading else { return }
-        isLoading = true
-        
-        do {
-            let authService = AuthService()
-            let randomId = Int.random(in: 1...10000)
-            let user = try await authService.signUp(
-                email: "testuser\(randomId)@gmail.com",
-                password: "SecurePassword123!",
-                name: "Test User \(randomId)"  // Wird als display_name gespeichert
-            )
-            
-            alertMessage = "✅ SignUp Erfolg!\nDisplay Name: \(user.display_name)\nID: \(user.id)"
-        } catch {
-            alertMessage = "❌ Fehler: \(error.localizedDescription)"
+        .task {
+            // ✅ Beim Erscheinen den aktuellen User laden
+            await loadCurrentUser()
         }
-        isLoading = false
     }
 
+    // MARK: - User laden
     @MainActor
-    private func testSupabaseInsert() async {
-        guard !isLoading else { return }
-        isLoading = true
-        
+    private func loadCurrentUser() async {
         do {
-            // ✅ display_name und email
-            let testUser = AppUser(
-                id: UUID(),
-                display_name: "TestUser \(Int.random(in: 1...1000))",
-                email: "test\(Int.random(in: 1...1000))@example.com" // Email hinzugefügt
-            )
+            let session = try await supabase.auth.session
+            let userId = session.user.id
             
-            try await supabase.from("user")
-                .insert(testUser)
+            // ✅ User aus der Datenbank laden
+            currentUser = try await supabase
+                .from("user")
+                .select("id, display_name, email")
+                .eq("id", value: userId)
+                .single()
                 .execute()
-            alertMessage = "✅ Erfolg! User in Tabelle eingefügt"
+                .value
+            
         } catch {
-            alertMessage = "❌ Fehler: \(error.localizedDescription)"
+            print("❌ Fehler beim Laden des Users: \(error)")
         }
-        isLoading = false
     }
 
     // MARK: - Appearance Methods
