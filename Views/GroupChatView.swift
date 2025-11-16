@@ -7,9 +7,8 @@ struct GroupChatView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     
-    // ✅ ColorManager hinzufügen
     @StateObject private var colorManager = ColorManager()
-    @State private var currentUser: AppUser? // ✅ Aktuellen User speichern
+    @State private var currentUser: AppUser?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,7 +49,6 @@ struct GroupChatView: View {
                             .padding(.top, 100)
                         } else {
                             ForEach(message) { msg in
-                                // ✅ ColorManager übergeben
                                 SimpleChatRow(
                                     message: msg,
                                     colorManager: colorManager,
@@ -68,7 +66,7 @@ struct GroupChatView: View {
                 }
             }
 
-            // Composer (Eingabefeld + Senden)
+            // Composer
             HStack(spacing: 10) {
                 TextField("Nachricht eingeben...", text: $draft, axis: .vertical)
                     .lineLimit(1...4)
@@ -100,27 +98,21 @@ struct GroupChatView: View {
         }
         .onAppear {
             Task {
-                await loadCurrentUser() // ✅ Aktuellen User laden
+                await loadCurrentUser()
                 await loadMessages()
             }
         }
     }
 
     // MARK: - Aktuellen User laden
-    @MainActor
     private func loadCurrentUser() async {
-        do {
-            // ✅ Später: Echten User von Supabase laden
-            // currentUser = try await UserEndpoints.getCurrentUser()
-            
+        await MainActor.run {
             // ⏳ Temporär: Platzhalter
             currentUser = AppUser(
-                id: UUID(), // Später echte ID
+                id: UUID(),
                 display_name: "Ich",
                 email: "temp@example.com"
             )
-        } catch {
-            print("❌ Fehler beim Laden des aktuellen Users: \(error)")
         }
     }
 
@@ -131,33 +123,41 @@ struct GroupChatView: View {
     }
 
     // MARK: - Nachrichten laden
-    @MainActor
     private func loadMessages() async {
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            message = try await ChatEndpoints.fetchMessages(for: group.id)
-            print("✅ \(message.count) Nachrichten geladen")
-        } catch {
-            errorMessage = error.localizedDescription
-            print("❌ Fehler beim Laden der Nachrichten: \(error)")
+        await MainActor.run {
+            isLoading = true
+            errorMessage = nil
         }
         
-        isLoading = false
+        do {
+            let fetchedMessages = try await ChatEndpoints.fetchMessages(for: group.id)
+            
+            await MainActor.run {
+                message = fetchedMessages
+                print("✅ \(message.count) Nachrichten geladen")
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                print("❌ Fehler beim Laden der Nachrichten: \(error)")
+            }
+        }
+        
+        await MainActor.run {
+            isLoading = false
+        }
     }
 
     // MARK: - Nachricht senden
-    @MainActor
     private func sendMessage(_ text: String) {
-        Task {
+        Task { @MainActor in
             do {
                 let newMessage = try await ChatEndpoints.sendMessage(groupID: group.id, content: text)
                 message.append(newMessage)
                 print("📨 Nachricht gesendet: '\(text)' an Gruppe \(group.id)")
             } catch {
-                print("❌ Fehler beim Senden der Nachricht: \(error)")
                 errorMessage = "Nachricht konnte nicht gesendet werden: \(error.localizedDescription)"
+                print("❌ Fehler beim Senden der Nachricht: \(error)")
             }
         }
     }
@@ -172,6 +172,8 @@ struct GroupChatView: View {
         }
     }
 }
+
+// SimpleChatRow bleibt gleich...
 
 // ✅ SimpleChatRow mit ColorManager anpassen
 private struct SimpleChatRow: View {

@@ -100,29 +100,7 @@ struct GroupsView: View {
         
         isLoading = false
     }
-    
-    // ❌ DIESE METHODE ENTFERNEN/LÖSCHEN - wird nicht mehr benötigt
-    /*
-    private func fetchGroupsForUser(userId: UUID) async throws -> [AppGroup] {
-        let groups: [AppGroup] = try await supabase
-            .from("group")
-            .select("""
-                id,
-                name,
-                owner_id,
-                user:user!owner_id(
-                    id,
-                    display_name,
-                    email
-                )
-            """)
-            .eq("owner_id", value: userId)  // ← DAS WAR DAS PROBLEM!
-            .execute()
-            .value
-        
-        return groups
-    }
-    */
+
 }
 
 private struct GroupRow: View {
