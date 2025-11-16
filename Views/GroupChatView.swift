@@ -3,7 +3,7 @@ import SwiftUI
 struct GroupChatView: View {
     let group: AppGroup
     @State private var draft: String = ""
-    @State private var messages: [Message] = []
+    @State private var message: [Message] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     
@@ -36,7 +36,7 @@ struct GroupChatView: View {
                                 .buttonStyle(.bordered)
                             }
                             .padding(.top, 100)
-                        } else if messages.isEmpty {
+                        } else if message.isEmpty {
                             VStack {
                                 Image(systemName: "text.bubble")
                                     .font(.system(size: 48))
@@ -49,7 +49,7 @@ struct GroupChatView: View {
                             }
                             .padding(.top, 100)
                         } else {
-                            ForEach(messages) { msg in
+                            ForEach(message) { msg in
                                 // ✅ ColorManager übergeben
                                 SimpleChatRow(
                                     message: msg,
@@ -63,7 +63,7 @@ struct GroupChatView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 24)
                 }
-                .onChange(of: messages.count) { _ in
+                .onChange(of: message.count) { _ in
                     scrollToBottom(proxy)
                 }
             }
@@ -137,8 +137,8 @@ struct GroupChatView: View {
         errorMessage = nil
         
         do {
-            messages = try await ChatEndpoints.fetchMessages(for: group.id)
-            print("✅ \(messages.count) Nachrichten geladen")
+            message = try await ChatEndpoints.fetchMessages(for: group.id)
+            print("✅ \(message.count) Nachrichten geladen")
         } catch {
             errorMessage = error.localizedDescription
             print("❌ Fehler beim Laden der Nachrichten: \(error)")
@@ -153,7 +153,7 @@ struct GroupChatView: View {
         Task {
             do {
                 let newMessage = try await ChatEndpoints.sendMessage(groupID: group.id, content: text)
-                messages.append(newMessage)
+                message.append(newMessage)
                 print("📨 Nachricht gesendet: '\(text)' an Gruppe \(group.id)")
             } catch {
                 print("❌ Fehler beim Senden der Nachricht: \(error)")
@@ -163,7 +163,7 @@ struct GroupChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        if let last = messages.last {
+        if let last = message.last {
             DispatchQueue.main.async {
                 withAnimation(.easeOut(duration: 0.25)) {
                     proxy.scrollTo(last.id, anchor: .bottom)

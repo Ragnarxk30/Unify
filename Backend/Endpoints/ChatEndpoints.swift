@@ -4,7 +4,7 @@ import Supabase
 struct ChatEndpoints {
     
     private static let db = supabase
-    private static let messagesTable = "messages"
+    private static let messagesTable = "message"
     private static let auth: AuthRepository = SupabaseAuthRepository()
 
     // MARK: - Payload Structs
@@ -18,7 +18,7 @@ struct ChatEndpoints {
     
     /// Nachrichten für eine Gruppe abrufen
     static func fetchMessages(for groupID: UUID) async throws -> [Message] {
-        let messages: [Message] = try await db
+        let message: [Message] = try await db
             .from(messagesTable)
             .select("""
                 id,
@@ -37,7 +37,7 @@ struct ChatEndpoints {
             .execute()
             .value
         
-        return messages
+        return message
     }
     
     /// Nachricht senden
@@ -100,7 +100,7 @@ struct ChatEndpoints {
     static func fetchUserMessages(limit: Int = 50, offset: Int = 0) async throws -> [Message] {
         let userId = try await auth.currentUserId()
         
-        let messages: [Message] = try await db
+        let message: [Message] = try await db
             .from(messagesTable)
             .select("""
                 id,
@@ -121,6 +121,6 @@ struct ChatEndpoints {
             .execute()
             .value
         
-        return messages
+        return message
     }
 }
