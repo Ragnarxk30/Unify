@@ -18,7 +18,33 @@ struct SupabaseGroupRepository: GroupRepository {
         self.auth = auth
     }
 
-    // Encodable Payloads
+    // MARK: - GroupRepository Protocol Implementation
+
+    /// Gruppen des aktuellen Users abrufen (Owner UND Mitglied) - gefiltert durch RLS Policy
+    func fetchGroups() async throws -> [AppGroup] {
+        _ = try await auth.currentUserId() // Nur um Authentifizierung zu prüfen
+        
+        // ✅ Einfache Abfrage - RLS Policy filtert automatisch die sichtbaren Gruppen
+        let groups: [AppGroup] = try await db
+            .from(groupsTable)
+            .select("""
+                id,
+                name,
+                owner_id,
+                user:user!owner_id(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
+            .execute()
+            .value
+        
+        print("✅ fetchGroups: \(groups.count) Gruppen geladen (via RLS Policy)")
+        return groups
+    }
+
+    // MARK: - Encodable Payloads
     private struct CreateGroupPayload: Encodable {
         let name: String
         let ownerId: UUID
@@ -160,7 +186,7 @@ struct SupabaseGroupRepository: GroupRepository {
         let insert = MemberInsert(
             groupId: groupId,
             userId: userId,
-            role: role   
+            role: role
         )
 
         try await db
@@ -189,20 +215,3 @@ enum GroupError: Error {
     case unknownAppleIds([String])
     case emptyName
 }
-
-
-/*
-
-// MARK: - Query-Skelette (später füllen)
-func groupsOwnedBy(userId: UUID, limit: Int, offset: Int) async throws -> [Group] {
-
-}
-
-func groupsForMember(userId: UUID, limit: Int, offset: Int) async throws -> [Group] {
-
-}
-
-func removeMember(groupId: UUID, userId: UUID) async throws {
-
-}
-*/
