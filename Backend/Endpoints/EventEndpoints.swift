@@ -81,8 +81,8 @@ struct SupabaseEventRepository: EventRepository {
             id: row.id,
             title: row.title,
             details: row.details,
-            start: row.startsAt,
-            end: row.endsAt,
+            starts_at: row.startsAt,
+            ends_at: row.endsAt,
             group_id: row.groupId,
             created_by: row.createdBy,
             created_at: row.createdAt

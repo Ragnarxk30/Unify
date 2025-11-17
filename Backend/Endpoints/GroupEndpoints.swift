@@ -25,8 +25,6 @@ struct SupabaseGroupRepository: GroupRepository {
                 id,
                 name,
                 owner_id,
-                created_at,
-                updated_at,
                 user:user!owner_id(
                     id,
                     display_name,
@@ -43,7 +41,7 @@ struct SupabaseGroupRepository: GroupRepository {
     func create(name: String, invitedAppleIds: [String]) async throws {
         let ownerId = try await auth.currentUserId()
 
-        // 1) Gruppe anlegen - verwende AppGroup mit minimalen Feldern
+        // 1) Gruppe anlegen
         struct CreateGroupRequest: Encodable {
             let name: String
             let owner_id: UUID
@@ -58,8 +56,6 @@ struct SupabaseGroupRepository: GroupRepository {
                 id,
                 name,
                 owner_id,
-                created_at,
-                updated_at,
                 user:user!owner_id(
                     id,
                     display_name,

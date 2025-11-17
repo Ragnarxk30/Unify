@@ -22,8 +22,8 @@ struct EditEventView: View {
         self.onUpdated = onUpdated
         _title = State(initialValue: event.title)
         _details = State(initialValue: event.details ?? "")
-        _start = State(initialValue: event.start)
-        _end = State(initialValue: event.end)
+        _start = State(initialValue: event.starts_at)
+        _end = State(initialValue: event.ends_at)
     }
 
     var body: some View {

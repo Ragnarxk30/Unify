@@ -184,7 +184,7 @@ private struct EventCard: View {
                 .font(.title3).bold()
                 .foregroundStyle(.primary)
 
-            Text(Self.format(event.start, event.end))
+            Text(Self.format(event.starts_at, event.ends_at))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 

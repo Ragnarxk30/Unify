@@ -48,7 +48,7 @@ struct GroupEventsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(ev.title)
                                 .font(.title3).bold()
-                            Text(Self.format(ev.start, ev.end))
+                            Text(Self.format(ev.starts_at, ev.ends_at))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }

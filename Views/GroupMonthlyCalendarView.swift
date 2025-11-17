@@ -33,11 +33,11 @@ struct GroupMonthlyCalendarView: View {
     // ✅ Korrigierte events-Methode ohne GroupsViewModel
     private func events(on day: Date) -> [Event] {
         return events.filter { event in
-            cal.isDate(event.start, inSameDayAs: day) ||
-            cal.isDate(event.end, inSameDayAs: day) ||
-            (event.start <= day && day <= event.end && cal.isDate(event.start, equalTo: day, toGranularity: .month))
+            cal.isDate(event.starts_at, inSameDayAs: day) ||
+            cal.isDate(event.ends_at, inSameDayAs: day) ||
+            (event.starts_at <= day && day <= event.ends_at && cal.isDate(event.starts_at, equalTo: day, toGranularity: .month))
         }
-        .sorted { $0.start < $1.start }
+        .sorted { $0.starts_at < $1.starts_at }
     }
 
     var body: some View {
@@ -224,7 +224,7 @@ private struct DayEventsSheet: View {
                 ForEach(events) { ev in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(ev.title).font(.headline)
-                        Text(Self.format(ev.start, ev.end))
+                        Text(Self.format(ev.starts_at, ev.ends_at))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
