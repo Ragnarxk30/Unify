@@ -85,7 +85,9 @@ struct GroupMonthlyCalendarView: View {
                         let day = daysInMonth[i]
                         DayCell(day: day, events: events(on: day)) {
                             selectedDay = day
-                            showDaySheet = !events(on: day).isEmpty
+                            DispatchQueue.main.async {
+                                showDaySheet = !events(on: day).isEmpty
+                            }
                         }
                     }
                 }
@@ -98,7 +100,9 @@ struct GroupMonthlyCalendarView: View {
                                 let day = remaining[idx]
                                 DayCell(day: day, events: events(on: day)) {
                                     selectedDay = day
-                                    showDaySheet = !events(on: day).isEmpty
+                                    DispatchQueue.main.async {
+                                        showDaySheet = !events(on: day).isEmpty
+                                    }
                                 }
                             } else {
                                 Color.clear
@@ -127,24 +131,20 @@ struct GroupMonthlyCalendarView: View {
         }
     }
 
-    // MARK: - Events laden
+    //Events laden
     @MainActor
     private func loadEvents() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
-            // ✅ Später: Echte Events von Supabase laden
-            // events = try await CalendarEndpoints.fetchEvents(for: groupID)
-            
-            // ⏳ Temporär: Leere Liste
-            events = []
-            print("✅ Events für Gruppe \(groupID) geladen")
+            let repo = SupabaseEventRepository()
+            events = try await repo.listForGroup(groupID)
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Fehler beim Laden der Events: \(error)")
+            print("❌ Fehler beim Laden der Events:", error)
         }
-        
+
         isLoading = false
     }
 
