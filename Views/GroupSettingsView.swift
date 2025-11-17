@@ -12,9 +12,17 @@ struct GroupSettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var isOwner = false
     @State private var errorMessage: String?
+    @State private var members: [GroupMember] = []
+    @State private var isLoadingMembers = false
+    @State private var showAddMember = false
 
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
+
+    // ✅ Computed Property an der richtigen Stelle
+    private var nameTrimmed: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     init(group: AppGroup, onUpdated: @escaping (AppGroup) -> Void) {
         self.group = group
@@ -30,24 +38,63 @@ struct GroupSettingsView: View {
                         .disabled(isSaving)
                 }
 
-                // Platzhalter: Mitgliederverwaltung – kann nachgereicht werden
+                // ✅ Mitgliederverwaltung
                 Section("Mitglieder") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Mitgliederverwaltung folgt.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    if isLoadingMembers {
                         HStack {
-                            Button {
-                                // hier später: Add-Member Sheet
-                            } label: {
-                                Label("Mitglied hinzufügen", systemImage: "person.badge.plus")
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Lade Mitglieder...")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if members.isEmpty {
+                        Text("Noch keine Mitglieder")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(members) { member in
+                            HStack {
+                                Circle()
+                                    .fill(Color.blue.opacity(0.2))
+                                    .frame(width: 36, height: 36)
+                                    .overlay(
+                                        Text(member.memberUser.initials)
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.blue)
+                                    )
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(member.memberUser.display_name)
+                                        .font(.body)
+                                    Text(member.role.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                // ✅ Owner kann Mitglieder entfernen (außer sich selbst)
+                                if isOwner && member.user_id != group.owner_id {
+                                    Button(role: .destructive) {
+                                        removeMember(member)
+                                    } label: {
+                                        Image(systemName: "person.fill.xmark")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
-                            .disabled(true)
-
-                            Spacer()
+                            .padding(.vertical, 4)
                         }
                     }
-                    .padding(.vertical, 4)
+                    
+                    if isOwner {
+                        Button {
+                            showAddMember = true
+                        } label: {
+                            Label("Mitglied hinzufügen", systemImage: "person.badge.plus")
+                        }
+                    }
                 }
 
                 if isOwner {
@@ -95,14 +142,21 @@ struct GroupSettingsView: View {
             } message: {
                 Text("Diese Aktion kann nicht rückgängig gemacht werden.")
             }
-            .task {
-                await resolveOwnership()
+            .sheet(isPresented: $showAddMember) {
+                AddMemberView(groupId: group.id) { newMember in
+                    // Mitglied wurde hinzugefügt - Liste aktualisieren
+                    Task {
+                        await loadMembers()
+                    }
+                }
+            }
+            .onAppear {
+                Task {
+                    await resolveOwnership()
+                    await loadMembers()
+                }
             }
         }
-    }
-
-    private var nameTrimmed: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @MainActor
@@ -122,6 +176,55 @@ struct GroupSettingsView: View {
             }
         }
     }
+    
+    // MARK: - Mitglieder laden
+    private func loadMembers() async {
+        await MainActor.run {
+            isLoadingMembers = true
+            errorMessage = nil
+            print("🔄 Starte loadMembers für Gruppe \(group.id)")
+        }
+        
+        do {
+            print("🔍 Rufe fetchGroupMembers auf...")
+            let fetchedMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
+            
+            await MainActor.run {
+                members = fetchedMembers
+                isLoadingMembers = false
+                print("✅ \(members.count) Mitglieder geladen")
+                
+                // Debug: Zeige alle geladenen Mitglieder
+                for member in members {
+                    print("   👤 \(member.memberUser.display_name) - \(member.role.rawValue)")
+                }
+            }
+        } catch {
+            await MainActor.run {
+                isLoadingMembers = false
+                let errorMsg = "Mitglieder konnten nicht geladen werden: \(error.localizedDescription)"
+                setError(errorMsg)
+                print("❌ \(errorMsg)")
+                print("🔍 Full Error: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Mitglied entfernen
+    private func removeMember(_ member: GroupMember) {
+        Task {
+            do {
+                try await groupRepo.removeMember(groupId: group.id, userId: member.user_id)
+                await MainActor.run {
+                    members.removeAll { $0.user_id == member.user_id }
+                }
+            } catch {
+                await MainActor.run {
+                    setError("Mitglied konnte nicht entfernt werden: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
 
     private func save() async {
         guard !nameTrimmed.isEmpty, nameTrimmed != group.name else { return }
@@ -131,7 +234,6 @@ struct GroupSettingsView: View {
         }
         do {
             try await groupRepo.rename(groupId: group.id, to: nameTrimmed)
-            // Lokales Objekt mit neuem Namen zurückreichen
             let updated = AppGroup(id: group.id, name: nameTrimmed, owner_id: group.owner_id, user: group.user)
             await MainActor.run {
                 onUpdated(updated)
@@ -155,7 +257,6 @@ struct GroupSettingsView: View {
             try await groupRepo.delete(groupId: group.id)
             await MainActor.run {
                 isDeleting = false
-                // Nach dem Löschen einfach schließen. Aufrufende View sollte Liste aktualisieren. 
                 dismiss()
             }
         } catch {
@@ -167,3 +268,64 @@ struct GroupSettingsView: View {
     }
 }
 
+// ✅ Extension für Initials
+extension AppUser {
+    var initials: String {
+        let comps = display_name.split(separator: " ")
+        let first = comps.first?.first.map(String.init) ?? ""
+        let last = comps.dropFirst().first?.first.map(String.init) ?? ""
+        return (first + last).uppercased()
+    }
+}
+
+// ✅ AddMemberView (vereinfacht)
+struct AddMemberView: View {
+    @Environment(\.dismiss) private var dismiss
+    let groupId: UUID
+    let onMemberAdded: (GroupMember) -> Void
+    
+    @State private var email = ""
+    @State private var isAdding = false
+    @State private var errorMessage: String?
+    
+    private let groupRepo = SupabaseGroupRepository()
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("E-Mail Adresse", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                } header: {
+                    Text("Mitglied einladen")
+                } footer: {
+                    Text("Die Person muss bereits einen Account haben.")
+                }
+                
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+            .navigationTitle("Mitglied hinzufügen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Hinzufügen") { Task { await addMember() } }
+                        .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
+                }
+            }
+        }
+    }
+    
+    private func addMember() async {
+        // Hier müsstest du die Logik implementieren um User per E-Mail zu finden und hinzuzufügen
+        // Das ist komplexer und erfordert zusätzliche Endpoints
+    }
+}

@@ -7,68 +7,56 @@ struct GroupChatView: View {
     @State private var messages: [Message] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
-    
     @StateObject private var colorManager = ColorManager()
-    @State private var currentUserId: UUID? // ✅ Nur die ID cached speichern 
+    @StateObject private var speechManager = SpeechToTextManager()
+    @State private var currentUserId: UUID?
+    @State private var showSpeechUI = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Nachrichtenliste
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 28) {
-                        if isLoading {
-                            ProgressView("Lade Nachrichten...")
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(.top, 100)
-                        } else if let errorMessage = errorMessage {
-                            VStack {
-                                Text("Fehler beim Laden")
-                                    .font(.headline)
-                                Text(errorMessage)
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                Button("Erneut versuchen") {
-                                    Task {
-                                        await loadMessages()
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            .padding(.top, 100)
-                        } else if messages.isEmpty {
-                            VStack {
-                                Image(systemName: "text.bubble")
-                                    .font(.system(size: 48))
-                                    .foregroundColor(.secondary)
-                                Text("Noch keine Nachrichten")
-                                    .font(.headline)
-                                Text("Starte die Konversation!")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.top, 100)
-                        } else {
-                            ForEach(messages) { message in
-                                ChatBubbleView(
-                                    message: message,
-                                    colorManager: colorManager,
-                                    isCurrentUser: isCurrentUser(message)
-                                )
-                                .id(message.id)
-                            }
+                    LazyVStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            ChatBubbleView(
+                                message: message,
+                                colorManager: colorManager,
+                                isCurrentUser: isCurrentUser(message)
+                            )
+                            .id(message.id)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 24)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 16)
                 }
                 .onChange(of: messages.count) { _ in
                     scrollToBottom(proxy)
                 }
+                .onAppear {
+                    scrollToBottom(proxy)
+                }
             }
+            .background(Color(.systemGroupedBackground))
 
-            // Composer
+            // Composer mit Sprach-Button
             HStack(spacing: 10) {
+                // Sprach-Button
+                Button {
+                    if speechManager.isRecording {
+                        speechManager.stopRecording()
+                        draft = speechManager.commitText()
+                    } else {
+                        speechManager.startRecording()
+                    }
+                } label: {
+                    Image(systemName: speechManager.isRecording ? "waveform.circle.fill" : "waveform.circle")
+                        .font(.title2)
+                        .foregroundColor(speechManager.isRecording ? .red : .blue)
+                        .symbolEffect(.bounce, value: speechManager.isRecording)
+                }
+                .disabled(!speechManager.hasPermission)
+
                 TextField("Nachricht eingeben...", text: $draft, axis: .vertical)
                     .lineLimit(1...4)
                     .padding(.horizontal, 14)
@@ -96,11 +84,55 @@ struct GroupChatView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(.ultraThinMaterial)
+            
+            // Sprach-Erkennungs-Anzeige
+            if speechManager.isRecording {
+                VStack {
+                    HStack {
+                        Image(systemName: "waveform")
+                            .foregroundColor(.red)
+                        Text("Spracherkennung aktiv...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(speechManager.recognizedText)
+                            .font(.caption)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
         }
+        .navigationTitle(group.name)
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             Task {
                 await loadCurrentUserId()
                 await loadMessages()
+            }
+        }
+        .alert("Berechtigung benötigt", isPresented: .constant(speechManager.errorMessage != nil)) {
+            Button("OK") { speechManager.errorMessage = nil }
+            Button("Einstellungen") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        } message: {
+            Text(speechManager.errorMessage ?? "")
+        }
+        .overlay {
+            if isLoading {
+                ProgressView("Nachrichten werden geladen...")
+                    .padding()
+                    .background(.regularMaterial)
+                    .cornerRadius(10)
             }
         }
     }
@@ -108,7 +140,6 @@ struct GroupChatView: View {
     // MARK: - Aktuelle User-ID laden
     private func loadCurrentUserId() async {
         do {
-            // ✅ Echte User-ID aus der Auth Session holen
             let session = try await supabase.auth.session
             await MainActor.run {
                 currentUserId = session.user.id
@@ -122,7 +153,7 @@ struct GroupChatView: View {
     // MARK: - Prüfen ob Nachricht vom aktuellen User (SYNCHRON)
     private func isCurrentUser(_ message: Message) -> Bool {
         guard let currentUserId = currentUserId else { return false }
-        return message.sent_by == currentUserId // ✅ Einfacher synchroner Vergleich
+        return message.sent_by == currentUserId
     }
 
     // MARK: - Nachrichten laden
@@ -217,6 +248,7 @@ private struct ChatBubbleView: View {
                     )
             }
         }
+        .padding(.horizontal, 8)
     }
     
     private var messageContent: some View {

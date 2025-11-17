@@ -67,21 +67,28 @@ struct UserProfile: Identifiable, Hashable {
 
 // MARK: - GroupMember Model
 struct GroupMember: Identifiable, Codable {
-    let id: UUID
+    // ✅ Synthetische ID für SwiftUI
+    var id: String { "\(user_id)-\(group_id)" }
+    
     let user_id: UUID
     let group_id: UUID
-    let role: MemberRole
+    let role: role
     let joined_at: Date
-    let user: AppUser? // Für Join mit user Tabelle
+    let user: AppUser?
     
-    // Computed property für einfacheren Zugriff
+    // ✅ FEHLT: memberUser computed property
     var memberUser: AppUser {
         user ?? AppUser(id: user_id, display_name: "Unbekannt", email: "")
     }
+    
+    // ✅ CodingKeys um 'id' zu ignorieren
+    enum CodingKeys: String, CodingKey {
+        case user_id, group_id, role, joined_at, user
+    }
 }
 
-// MARK: - MemberRole Enum (nur Werte, keine Logik)
-enum MemberRole: String, Codable, CaseIterable {
+// MARK: - role Enum (kleingeschrieben wie dein PostgreSQL ENUM)
+enum role: String, Codable, CaseIterable {
     case owner = "owner"
     case admin = "admin"
     case user = "user"

@@ -33,16 +33,16 @@ final class ColorManager: ObservableObject {
 
     // ✅ Korrigierte API: Eigene Nachrichten sind immer blau 
     func color(for user: AppUser, isCurrentUser: Bool = false) -> Color {
-        if isCurrentUser {
-            return .blue
+            if isCurrentUser {
+                return .blue
+            }
+            if let assigned = assignments[user.id] {
+                return assigned
+            }
+            let newColor = takeRandomAvailableColor()
+            assignments[user.id] = newColor
+            return newColor
         }
-        if let assigned = assignments[user.id] {
-            return assigned
-        }
-        let newColor = takeRandomAvailableColor()
-        assignments[user.id] = newColor
-        return newColor
-    }
 
     // ✅ Alternative Methode für temporäre UserProfile (falls noch benötigt)
     func color(for userProfile: UserProfile, isCurrentUser: Bool = false) -> Color {

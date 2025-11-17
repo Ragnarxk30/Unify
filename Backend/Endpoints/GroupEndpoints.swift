@@ -37,6 +37,29 @@ struct SupabaseGroupRepository: GroupRepository {
         print("✅ fetchGroups: \(groups.count) Gruppen geladen")
         return groups
     }
+    
+    func fetchGroupMembers(groupId: UUID) async throws -> [GroupMember] {
+        let members: [GroupMember] = try await db
+            .from("group_members")
+            .select("""
+                user_id,
+                group_id, 
+                role,
+                joined_at,
+                user:user!user_id(
+                    id,
+                    display_name,
+                    email
+                )
+            """)  // ✅ KEINE KOMMENTARE IN DER QUERY!
+            .eq("group_id", value: groupId.uuidString)
+            .execute()
+            .value
+        
+        print("✅ fetchGroupMembers: \(members.count) Mitglieder geladen")
+        return members
+    }
+    
 
     func create(name: String, invitedAppleIds: [String]) async throws {
         let ownerId = try await auth.currentUserId()
@@ -97,19 +120,19 @@ struct SupabaseGroupRepository: GroupRepository {
             }
         }
 
-        // 4) Member-Bulk mit GroupMember-ähnlicher Struktur
+        // 4) Member-Bulk - ✅ ENUM VALUES direkt verwenden!
         struct MemberRequest: Encodable {
             let group_id: UUID
             let user_id: UUID
-            let role: String
+            let role: role
         }
         
         var memberRequests: [MemberRequest] = [
-            MemberRequest(group_id: groupId, user_id: ownerId, role: "admin")
+            MemberRequest(group_id: groupId, user_id: ownerId, role: .admin) // ✅ .admin nicht "admin"
         ]
         
         memberRequests.append(contentsOf: memberUserIds.map { userId in
-            MemberRequest(group_id: groupId, user_id: userId, role: "user")
+            MemberRequest(group_id: groupId, user_id: userId, role: .user) // ✅ .user nicht "user"
         })
 
         if !memberRequests.isEmpty {
@@ -125,43 +148,13 @@ struct SupabaseGroupRepository: GroupRepository {
         }
     }
     
-    func rename(groupId: UUID, to newName: String) async throws {
-        let _ = try await auth.currentUserId()
-
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw GroupError.emptyName
-        }
-
-        struct RenameRequest: Encodable {
-            let name: String
-        }
-        
-        try await db
-            .from(groupsTable)
-            .update(RenameRequest(name: trimmed))
-            .eq("id", value: groupId.uuidString)
-            .execute()
-    }
-    
-    func delete(groupId: UUID) async throws {
-        let ownerId = try await auth.currentUserId()
-
-        try await db
-            .from(groupsTable)
-            .delete()
-            .eq("id", value: groupId.uuidString)
-            .eq("owner_id", value: ownerId.uuidString)
-            .execute()
-    }
-    
-    func addMember(groupId: UUID, userId: UUID, role: String) async throws {
+    func addMember(groupId: UUID, userId: UUID, role: role) async throws { // ✅ role: role nicht role: String
         _ = try await auth.currentUserId()
 
         struct AddMemberRequest: Encodable {
             let group_id: UUID
             let user_id: UUID
-            let role: String
+            let role: role // ✅ ENUM type
         }
         
         let request = AddMemberRequest(group_id: groupId, user_id: userId, role: role)
@@ -181,5 +174,38 @@ struct SupabaseGroupRepository: GroupRepository {
             .eq("group_id", value: groupId.uuidString)
             .eq("user_id", value: userId.uuidString)
             .execute()
+    }
+    
+    func rename(groupId: UUID, to newName: String) async throws {
+        let _ = try await auth.currentUserId()
+
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GroupError.emptyName
+        }
+
+        struct RenameRequest: Encodable {
+            let name: String
+        }
+        
+        try await db
+            .from(groupsTable)
+            .update(RenameRequest(name: trimmed))
+            .eq("id", value: groupId.uuidString)
+            .execute()
+        
+        print("✅ Gruppe \(groupId) umbenannt zu '\(trimmed)'")
+    }
+
+    func delete(groupId: UUID) async throws {
+        let ownerId = try await auth.currentUserId()
+
+        try await db
+            .from(groupsTable)
+            .delete()
+            .eq("id", value: groupId.uuidString)
+            .execute()
+        
+        print("✅ Gruppe \(groupId) gelöscht")
     }
 }

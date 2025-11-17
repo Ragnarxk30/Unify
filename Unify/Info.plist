@@ -2,20 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLIconFile</key>
-			<string></string>
-			<key>CFBundleURLName</key>
-			<string>IOS-HS.Unify</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>unify</string>
-			</array>
-		</dict>
-	</array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLIconFile</key>
+            <string></string>
+            <key>CFBundleURLName</key>
+            <string>IOS-HS.Unify</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>unify</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- ✅ KORREKT: Speech to Text Berechtigungen -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Diese App benötigt Zugriff auf Spracherkennung um Sprache in Text umzuwandeln</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Diese App benötigt Zugriff auf das Mikrofon um Sprache aufzunehmen</string>
 </dict>
 </plist>
