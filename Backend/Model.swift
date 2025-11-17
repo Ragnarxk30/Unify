@@ -32,9 +32,9 @@ struct AppGroup: Identifiable, Codable {
 struct Event: Identifiable, Codable {
     let id: UUID
     let title: String
-    let description: String?
-    let start: Date
-    let end: Date
+    let details: String?
+    let starts_at: Date
+    let ends_at: Date
     let group_id: UUID?
     let created_by: UUID
     let created_at: Date
