@@ -142,38 +142,102 @@ private struct GroupRow: View {
 private struct CreateGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String = ""
-    @State private var invited: String = ""
 
+    // Eine Zeile pro Einladung (E-Mail + Rolle)
+    private struct InviteRow: Identifiable {
+        enum Role: String, CaseIterable, Identifiable {
+            case member   // <- entspricht deinem Enum-Wert in Supabase
+            case admin
+            case owner
+
+            var id: String { rawValue }
+
+            var label: String {
+                switch self {
+                case .member: return "Mitglied"
+                case .admin:  return "Admin"
+                case .owner:  return "Owner"
+                }
+            }
+        }
+
+        let id = UUID()
+        var email: String = ""
+        var role: Role = .member    // Default: member
+    }
+
+    @State private var invites: [InviteRow] = [InviteRow()]
+
+    /// Aktuell nur Name + E-Mails.
+    /// Rollen sind schon im State und können später leicht ergänzt werden.
     let onCreate: (String, [String]) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Neue Gruppe erstellen").font(.title).bold()
+                Text("Neue Gruppe erstellen")
+                    .font(.title).bold()
                 Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                }
             }
+
+            // Gruppenname
             VStack(alignment: .leading, spacing: 8) {
                 Text("Gruppenname").font(.headline)
                 TextField("z.B. Familiengruppe", text: $name)
                     .textFieldStyle(.roundedBorder)
             }
+
+            // Einzuladende Benutzer
             VStack(alignment: .leading, spacing: 8) {
                 Text("Benutzer einladen").font(.headline)
-                TextField("E-Mails (durch Komma getrennt)", text: $invited)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                Text("Mehrere E-Mails mit Komma trennen")
-                    .font(.footnote).foregroundStyle(.secondary)
+
+                ForEach($invites) { $invite in
+                    HStack(spacing: 8) {
+                        TextField("E-Mail", text: $invite.email)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        Picker("Rolle", selection: $invite.role) {
+                            ForEach(InviteRow.Role.allCases) { role in
+                                Text(role.label).tag(role)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                Button {
+                    invites.append(InviteRow())
+                } label: {
+                    Label("Weitere Person hinzufügen", systemImage: "plus")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
+
+                Text("Standardrolle ist „Mitglied“.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+
             HStack {
                 Button("Abbrechen") { dismiss() }
                 Spacer()
                 Button {
-                    onCreate(name, invited.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+                    // Nur Mails, Rollen kommen später dazu
+                    let cleanedEmails = invites
+                        .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+
+                    onCreate(name, cleanedEmails)
                     dismiss()
-                } label: { Text("Gruppe erstellen") }
+                } label: {
+                    Text("Gruppe erstellen")
+                }
                 .buttonStyle(.borderedProminent)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }

@@ -10,9 +10,8 @@ import Supabase
 
 struct SupabaseEventRepository: EventRepository {
 
-    private let db = supabase
-    private let eventsTable  = "event"
-    private let membersTable = "group_members"
+    private let db   = supabase
+    private let eventsTable = "event"
     private let auth: AuthRepository
 
     init(auth: AuthRepository = SupabaseAuthRepository()) {
@@ -53,23 +52,6 @@ struct SupabaseEventRepository: EventRepository {
         }
     }
 
-    private struct EventMeta: Decodable {
-        let id: UUID
-        let groupId: UUID
-        let createdBy: UUID
-
-        enum CodingKeys: String, CodingKey {
-            case id
-            case groupId   = "group_id"
-            case createdBy = "created_by"
-        }
-    }
-
-    private struct MemberRow: Decodable {
-        let role: String
-    }
-
-    // 👉 Neu: Row-Typ für SELECT
     private struct EventRow: Decodable {
         let id: UUID
         let title: String
@@ -92,40 +74,23 @@ struct SupabaseEventRepository: EventRepository {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Mapping
 
-    /// Rolle des aktuellen Users in einer Gruppe
-    private func roleOfCurrentUser(in groupId: UUID) async throws -> String? {
-        let userId = try await auth.currentUserId()
-
-        let rows: [MemberRow] = try await db
-            .from(membersTable)
-            .select("role")
-            .eq("group_id", value: groupId.uuidString)
-            .eq("user_id", value: userId.uuidString)
-            .limit(1)
-            .execute()
-            .value
-
-        return rows.first?.role
-    }
-
-    /// Event-Metadaten (für Berechtigungen)
-    private func fetchEventMeta(_ eventId: UUID) async throws -> EventMeta {
-        let result: EventMeta = try await db
-            .from(eventsTable)
-            .select("id, group_id, created_by")
-            .eq("id", value: eventId.uuidString)
-            .single()
-            .execute()
-            .value
-
-        return result
+    private func mapRow(_ row: EventRow) -> Event {
+        Event(
+            id: row.id,
+            title: row.title,
+            details: row.details,
+            start: row.startsAt,
+            end: row.endsAt,
+            group_id: row.groupId,
+            created_by: row.createdBy,
+            created_at: row.createdAt
+        )
     }
 
     // MARK: - EventRepository
 
-    // CREATE: alle Gruppenmitglieder dürfen erstellen
     func create(
         groupId: UUID,
         title: String,
@@ -138,10 +103,6 @@ struct SupabaseEventRepository: EventRepository {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EventError.emptyTitle }
         if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
-
-        guard let _ = try await roleOfCurrentUser(in: groupId) else {
-            throw EventError.notMemberOfGroup
-        }
 
         let payload = EventInsert(
             groupId: groupId,
@@ -156,11 +117,9 @@ struct SupabaseEventRepository: EventRepository {
             .from(eventsTable)
             .insert(payload)
             .execute()
+        // Berechtigung: komplett über RLS (members_can_insert_events)
     }
 
-    // UPDATE:
-    // - user    → nur eigene Events
-    // - admin / owner → alle Events der Gruppe
     func update(
         eventId: UUID,
         title: String,
@@ -168,26 +127,9 @@ struct SupabaseEventRepository: EventRepository {
         startsAt: Date,
         endsAt: Date?
     ) async throws {
-        let userId = try await auth.currentUserId()
-
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EventError.emptyTitle }
         if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
-
-        // 1) Event-Meta laden
-        let meta = try await fetchEventMeta(eventId)
-
-        // 2) Rolle in der Gruppe holen
-        guard let role = try await roleOfCurrentUser(in: meta.groupId) else {
-            throw EventError.notMemberOfGroup
-        }
-
-        let isCreator = (meta.createdBy == userId)
-        let canEditAll = (role == "admin" || role == "owner")
-
-        guard canEditAll || isCreator else {
-            throw EventError.insufficientPermissions
-        }
 
         let payload = EventUpdatePayload(
             title: trimmed,
@@ -201,37 +143,18 @@ struct SupabaseEventRepository: EventRepository {
             .update(payload)
             .eq("id", value: eventId.uuidString)
             .execute()
+        // Berechtigung: RLS-Policy members_can_update_events_with_role_logic
     }
 
-    // DELETE:
-    // - user    → nur eigene Events
-    // - admin / owner → alle Events
     func delete(eventId: UUID) async throws {
-        let userId = try await auth.currentUserId()
-
-        // 1) Event-Meta
-        let meta = try await fetchEventMeta(eventId)
-
-        // 2) Rolle holen
-        guard let role = try await roleOfCurrentUser(in: meta.groupId) else {
-            throw EventError.notMemberOfGroup
-        }
-
-        let isCreator = (meta.createdBy == userId)
-        let canDeleteAll = (role == "admin" || role == "owner")
-
-        guard canDeleteAll || isCreator else {
-            throw EventError.insufficientPermissions
-        }
-
         try await db
             .from(eventsTable)
             .delete()
             .eq("id", value: eventId.uuidString)
             .execute()
+        // Berechtigung: RLS-Policy members_can_delete_events_with_role_logic
     }
 
-    // LIST: Events für eine Gruppe
     func listForGroup(_ groupId: UUID) async throws -> [Event] {
         let rows: [EventRow] = try await db
             .from(eventsTable)
@@ -241,26 +164,25 @@ struct SupabaseEventRepository: EventRepository {
             .execute()
             .value
 
-        // Mapping auf dein Domain-Model `Event`
-        return rows.map { row in
-            Event(
-                id: row.id,
-                title: row.title,
-                details: row.details,
-                start: row.startsAt,
-                end: row.endsAt,
-                group_id: row.groupId,
-                created_by: row.createdBy,
-                created_at: row.createdAt
-            )
-        }
+        return rows.map(mapRow)
+        // Sichtbarkeit: members_can_select_events / user_can_view_group_events
+    }
+
+    func listUserEvents() async throws -> [Event] {
+        let rows: [EventRow] = try await db
+            .from(eventsTable)
+            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
+            .order("starts_at", ascending: true)
+            .execute()
+            .value
+
+        return rows.map(mapRow)
+        // RLS sorgt dafür, dass nur Events aus Gruppen zurückkommen,
+        // in denen auth.uid() Mitglied ist.
     }
 }
 
 enum EventError: Error {
     case emptyTitle
     case invalidTimeRange
-    case notMemberOfGroup
-    case insufficientPermissions
-    case notFound
 }

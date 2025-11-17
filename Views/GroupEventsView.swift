@@ -117,6 +117,13 @@ struct GroupEventsView: View {
             .padding(.top, 16)
         }
         .background(Color(.systemGroupedBackground))
+        .onChange(of: start) { oldStart, newStart in
+            // Dauer dynamisch berechnen — kein eigener State notwendig
+            let duration = end.timeIntervalSince(oldStart)
+
+            // Ende nur aktualisieren, wenn User nicht schon explizit selbst Endzeit geändert hat
+            end = newStart.addingTimeInterval(max(duration, 0))
+        }
         .onAppear {
             Task {
                 await loadEvents()

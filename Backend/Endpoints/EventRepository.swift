@@ -49,4 +49,7 @@ protocol EventRepository {
     
     /// Alle Events einer Gruppe laden (RLS regelt Sichtbarkeit)
     func listForGroup(_ groupId: UUID) async throws -> [Event]
+    
+    //Listet alle Events die ein User sehen darf
+    func listUserEvents() async throws -> [Event]
 }
