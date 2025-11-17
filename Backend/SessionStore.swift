@@ -10,9 +10,10 @@ final class SessionStore: ObservableObject {
 
     private var pollTask: Task<Void, Never>?
     private var authStateTask: Task<Void, Never>?
-    private let refreshInterval: TimeInterval = 60 * 15 // 15 Minuten
+    private let refreshInterval: TimeInterval = 60 * 15
 
     init() {
+        // ✅ KEINE State-Änderungen im init!
         setupAuthStateListener()
         checkInitialSession()
     }
@@ -22,7 +23,6 @@ final class SessionStore: ObservableObject {
         authStateTask?.cancel()
     }
 
-    /// Setzt Listener für Auth-State Changes mit AsyncStream
     private func setupAuthStateListener() {
         authStateTask = Task { [weak self] in
             guard let self else { return }
@@ -33,7 +33,7 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// Behandelt Auth-State Changes
+    // ✅ Immer mit @MainActor sicherstellen
     private func handleAuthStateChange(event: AuthChangeEvent, session: Session?) async {
         await MainActor.run {
             switch event {
@@ -66,23 +66,18 @@ final class SessionStore: ObservableObject {
                 self.startPolling()
                 print("✅ Auth State: User Updated")
                 
-            case .passwordRecovery, .tokenRefreshed:
-                // Weitere Events falls benötigt
-                break
-            @unknown default:
+            default:
                 break
             }
         }
     }
 
-    /// Prüft die Session beim App-Start
     private func checkInitialSession() {
         Task {
             await refreshSession()
         }
     }
 
-    /// Startet Polling mit längerem Intervall
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
@@ -98,26 +93,28 @@ final class SessionStore: ObservableObject {
         isWaitingForEmailConfirmation = waiting
     }
 
-    /// Prüft/aktualisiert die Session nur wenn nötig
     func refreshSession() async {
         do {
             let session = try await supabase.auth.session
             
-            // ✅ Korrekte Prüfung: expiresAt ist bereits ein TimeInterval (Timestamp)
             let currentTime = Date().timeIntervalSince1970
             let timeUntilExpiry = session.expiresAt - currentTime
             
-            if timeUntilExpiry < 300 { // 5 Minuten
+            if timeUntilExpiry < 300 {
                 _ = try await supabase.auth.refreshSession()
                 print("✅ Session refreshed (läuft in \(Int(timeUntilExpiry))s ab)")
             } else {
                 print("🔐 Session noch \(Int(timeUntilExpiry))s gültig")
             }
             
-            // ✅ State wird durch Auth-State Listener geupdated
+            // ✅ State-Änderungen nur im MainActor
+            await MainActor.run {
+                self.isSignedIn = true
+                self.isWaitingForEmailConfirmation = false
+            }
             
         } catch {
-            // ❌ Session ungültig oder abgelaufen
+            // ✅ Auch Fehler im MainActor behandeln
             await MainActor.run {
                 self.isSignedIn = false
                 self.isWaitingForEmailConfirmation = false
@@ -126,7 +123,6 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// Manuelles Refresh (z.B. beim App-Wechsel zurück)
     func manualRefresh() async {
         print("🔄 Manuelles Session Refresh")
         await refreshSession()
@@ -138,16 +134,17 @@ final class SessionStore: ObservableObject {
             print("✅ SignOut erfolgreich")
         } catch {
             print("❌ SignOut Fehler: \(error)")
-            // Trotz Fehler State zurücksetzen
-            await MainActor.run {
-                self.isSignedIn = false
-                self.isWaitingForEmailConfirmation = false
-            }
         }
+        
+        // ✅ State-Änderungen im MainActor
+        await MainActor.run {
+            self.isSignedIn = false
+            self.isWaitingForEmailConfirmation = false
+        }
+        pollTask?.cancel()
     }
 
-    /// Manuelle Setter (für spezielle Fälle)
-    func markSignedIn()  {
+    func markSignedIn() {
         isSignedIn = true
         isWaitingForEmailConfirmation = false
         startPolling()
