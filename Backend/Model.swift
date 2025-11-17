@@ -65,4 +65,40 @@ struct UserProfile: Identifiable, Hashable {
     }
 }
 
+// MARK: - GroupMember Model
+struct GroupMember: Identifiable, Codable {
+    let id: UUID
+    let user_id: UUID
+    let group_id: UUID
+    let role: MemberRole
+    let joined_at: Date
+    let user: AppUser? // Für Join mit user Tabelle
+    
+    // Computed property für einfacheren Zugriff
+    var memberUser: AppUser {
+        user ?? AppUser(id: user_id, display_name: "Unbekannt", email: "")
+    }
+}
 
+// MARK: - MemberRole Enum (nur Werte, keine Logik)
+enum MemberRole: String, Codable, CaseIterable {
+    case owner = "owner"
+    case admin = "admin"
+    case user = "user"
+    
+    var displayName: String {
+        switch self {
+        case .owner: return "Besitzer"
+        case .admin: return "Administrator"
+        case .user: return "Mitglied"
+        }
+    }
+}
+
+// MARK: - Error Enum
+enum GroupError: Error {
+    case unknownAppleIds([String])
+    case emptyName
+    case notGroupOwner
+    case userNotFound
+}

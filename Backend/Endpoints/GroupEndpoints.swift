@@ -1,8 +1,4 @@
-//  group_endpoints.swift
-//  Unify
-//
-//  Created by Jonas Dunkenberger on 04.11.25.
-
+// group_endpoints.swift
 import Foundation
 import Supabase
 
@@ -20,17 +16,17 @@ struct SupabaseGroupRepository: GroupRepository {
 
     // MARK: - GroupRepository Protocol Implementation
 
-    /// Gruppen des aktuellen Users abrufen (Owner UND Mitglied) - gefiltert durch RLS Policy
     func fetchGroups() async throws -> [AppGroup] {
-        _ = try await auth.currentUserId() // Nur um Authentifizierung zu prüfen
+        _ = try await auth.currentUserId()
         
-        // ✅ Einfache Abfrage - RLS Policy filtert automatisch die sichtbaren Gruppen
         let groups: [AppGroup] = try await db
             .from(groupsTable)
             .select("""
                 id,
                 name,
                 owner_id,
+                created_at,
+                updated_at,
                 user:user!owner_id(
                     id,
                     display_name,
@@ -40,75 +36,36 @@ struct SupabaseGroupRepository: GroupRepository {
             .execute()
             .value
         
-        print("✅ fetchGroups: \(groups.count) Gruppen geladen (via RLS Policy)")
+        print("✅ fetchGroups: \(groups.count) Gruppen geladen")
         return groups
     }
 
-    // MARK: - Encodable Payloads
-    private struct CreateGroupPayload: Encodable {
-        let name: String
-        let ownerId: UUID
-        // <- Case-Name == Property-Name; Mapping passiert rechts
-        enum CodingKeys: String, CodingKey {
-            case name
-            case ownerId = "owner_id"
-        }
-    }
-
-    private struct MemberInsert: Encodable {
-        let groupId: UUID
-        let userId: UUID
-        let role: String
-        enum CodingKeys: String, CodingKey {
-            case groupId = "group_id"
-            case userId  = "user_id"
-            case role
-        }
-    }
-
-    /*// MARK: - CRUD (alte Minimal-Variante)
-    func create(name: String) async throws {
-        let ownerId = try await auth.currentUserId()
-        let payload = CreateGroupPayload(name: name, ownerId: ownerId)
-
-        try await db
-            .from(groupsTable)
-            .insert(payload)
-            .execute()
-    }
-    */
-    
-    func rename(groupId: UUID, to newName: String) async throws {
-        let _ = try await auth.currentUserId()   // nur für „eingeloggt“-Sicherheit
-
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw GroupError.emptyName
-        }
-
-        struct RenamePayload: Encodable {
-            let name: String
-        }
-
-        try await db
-            .from(groupsTable)
-            .update(RenamePayload(name: trimmed))
-            .eq("id", value: groupId.uuidString)
-            .execute()
-    }
-
-    // MARK: - Public
-    /// Erstellt eine Gruppe und fügt optionale Mitglieder per E-Mail (Apple-ID) hinzu.
     func create(name: String, invitedAppleIds: [String]) async throws {
         let ownerId = try await auth.currentUserId()
 
-        // 1) Gruppe anlegen und ID holen
-        struct GroupRow: Decodable { let id: UUID }
-
-        let created: GroupRow = try await db
+        // 1) Gruppe anlegen - verwende AppGroup mit minimalen Feldern
+        struct CreateGroupRequest: Encodable {
+            let name: String
+            let owner_id: UUID
+        }
+        
+        let request = CreateGroupRequest(name: name, owner_id: ownerId)
+        
+        let created: AppGroup = try await db
             .from(groupsTable)
-            .insert(CreateGroupPayload(name: name, ownerId: ownerId))
-            .select("id")
+            .insert(request)
+            .select("""
+                id,
+                name,
+                owner_id,
+                created_at,
+                updated_at,
+                user:user!owner_id(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
             .single()
             .execute()
             .value
@@ -127,14 +84,9 @@ struct SupabaseGroupRepository: GroupRepository {
         var unknownEmails: [String] = []
 
         if !cleaned.isEmpty {
-            struct UserRow: Decodable {
-                let id: UUID
-                let email: String
-            }
-
-            let userRows: [UserRow] = try await db
+            let userRows: [AppUser] = try await db
                 .from(usersTable)
-                .select("id,email")
+                .select("id,display_name,email")
                 .in("email", values: cleaned)
                 .execute()
                 .value
@@ -149,26 +101,53 @@ struct SupabaseGroupRepository: GroupRepository {
             }
         }
 
-        // 4) Member-Bulk (Owner = admin, Eingeladene = member)
-        var inserts: [MemberInsert] = [MemberInsert(groupId: groupId, userId: ownerId, role: "admin")]
-        inserts.append(contentsOf: memberUserIds.map { MemberInsert(groupId: groupId, userId: $0, role: "user") })
+        // 4) Member-Bulk mit GroupMember-ähnlicher Struktur
+        struct MemberRequest: Encodable {
+            let group_id: UUID
+            let user_id: UUID
+            let role: String
+        }
+        
+        var memberRequests: [MemberRequest] = [
+            MemberRequest(group_id: groupId, user_id: ownerId, role: "admin")
+        ]
+        
+        memberRequests.append(contentsOf: memberUserIds.map { userId in
+            MemberRequest(group_id: groupId, user_id: userId, role: "user")
+        })
 
-        if !inserts.isEmpty {
-            // Voraussetzung: UNIQUE (group_id, user_id) auf group_members
+        if !memberRequests.isEmpty {
             _ = try await db
                 .from(membersTable)
-                .upsert(inserts, onConflict: "group_id,user_id", returning: .minimal)
+                .upsert(memberRequests, onConflict: "group_id,user_id", returning: .minimal)
                 .execute()
         }
 
-        // 5) Optional: unbekannte E-Mails protokollieren/handhaben
+        // 5) Unbekannte E-Mails als Fehler werfen
         if !unknownEmails.isEmpty {
-            print("Warnung: Unbekannte E-Mails (kein user): \(unknownEmails)")
-            // Oder: throw GroupError.unknownAppleIds(unknownEmails)
+            throw GroupError.unknownAppleIds(unknownEmails)
         }
     }
     
-    /// Löscht eine Gruppe. Darf nur vom Owner ausgeführt werden.
+    func rename(groupId: UUID, to newName: String) async throws {
+        let _ = try await auth.currentUserId()
+
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GroupError.emptyName
+        }
+
+        struct RenameRequest: Encodable {
+            let name: String
+        }
+        
+        try await db
+            .from(groupsTable)
+            .update(RenameRequest(name: trimmed))
+            .eq("id", value: groupId.uuidString)
+            .execute()
+    }
+    
     func delete(groupId: UUID) async throws {
         let ownerId = try await auth.currentUserId()
 
@@ -176,28 +155,27 @@ struct SupabaseGroupRepository: GroupRepository {
             .from(groupsTable)
             .delete()
             .eq("id", value: groupId.uuidString)
-            .eq("owner_id", value: ownerId.uuidString)   // doppelte Absicherung
+            .eq("owner_id", value: ownerId.uuidString)
             .execute()
     }
     
     func addMember(groupId: UUID, userId: UUID, role: String) async throws {
-        _ = try await auth.currentUserId()  // nur prüfen, dass jemand eingeloggt ist
+        _ = try await auth.currentUserId()
 
-        let insert = MemberInsert(
-            groupId: groupId,
-            userId: userId,
-            role: role
-        )
+        struct AddMemberRequest: Encodable {
+            let group_id: UUID
+            let user_id: UUID
+            let role: String
+        }
+        
+        let request = AddMemberRequest(group_id: groupId, user_id: userId, role: role)
 
         try await db
             .from(membersTable)
-            .insert(insert)
+            .insert(request)
             .execute()
     }
     
-    /// Entfernt ein Mitglied aus einer Gruppe.
-    /// Erlaubt durch RLS nur:
-    /// - Owner: jeden entfernen
     func removeMember(groupId: UUID, userId: UUID) async throws {
         _ = try await auth.currentUserId()
 
@@ -208,10 +186,4 @@ struct SupabaseGroupRepository: GroupRepository {
             .eq("user_id", value: userId.uuidString)
             .execute()
     }
-}
-
-// MARK: - Optionales Domain-Error
-enum GroupError: Error {
-    case unknownAppleIds([String])
-    case emptyName
 }
