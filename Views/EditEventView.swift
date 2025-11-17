@@ -2,7 +2,7 @@
 //  EditEventView.swift
 //  Unify
 //
-//  Created by Jonas Dunkenberger on 16.11.25.
+//  Created by Jonas Dunkenberger on 16.11.25. 
 //
 import SwiftUI
 

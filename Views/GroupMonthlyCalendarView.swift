@@ -30,7 +30,7 @@ struct GroupMonthlyCalendarView: View {
         return (weekday - first + 7) % 7
     }
 
-    // ✅ Korrigierte events-Methode ohne GroupsViewModel
+    // ✅ Korrigierte events-Methode ohne GroupsViewModel 
     private func events(on day: Date) -> [Event] {
         return events.filter { event in
             cal.isDate(event.starts_at, inSameDayAs: day) ||

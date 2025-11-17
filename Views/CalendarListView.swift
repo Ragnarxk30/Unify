@@ -173,7 +173,7 @@ struct CalendarListView: View {
     }
 }
 
-// MARK: - Card
+// MARK: - Card 
 
 private struct EventCard: View {
     let event: Event

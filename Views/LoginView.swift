@@ -2,7 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     let onSuccess: () -> Void
-    @EnvironmentObject private var session: SessionStore  // ✅ SessionStore hinzugefügt
+    @EnvironmentObject private var session: SessionStore  // ✅ SessionStore hinzugefügt 
 
     @State private var email: String = ""
     @State private var password: String = ""

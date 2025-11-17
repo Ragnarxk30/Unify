@@ -13,7 +13,7 @@ final class SessionStore: ObservableObject {
     private let refreshInterval: TimeInterval = 60 * 15
 
     init() {
-        // ✅ KEINE State-Änderungen im init!
+        // ✅ KEINE State-Änderungen im init! 
         setupAuthStateListener()
         checkInitialSession()
     }

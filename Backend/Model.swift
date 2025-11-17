@@ -40,7 +40,7 @@ struct Event: Identifiable, Codable {
     let created_at: Date
 }
 
-// In Backend/model.swift - Message Model anpassen
+// In Backend/model.swift - Message Model anpassen 
 struct Message: Identifiable, Codable {
     let id: UUID
     let group_id: UUID

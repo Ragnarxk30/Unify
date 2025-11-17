@@ -3,7 +3,7 @@ import Supabase
 
 struct SettingsView: View {
     @EnvironmentObject var session: SessionStore
-    // Speichert die Auswahl persistent
+    // Speichert die Auswahl persistent 
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
     @State private var alertMessage: String?

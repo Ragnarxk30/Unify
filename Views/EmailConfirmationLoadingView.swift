@@ -1,5 +1,5 @@
 import SwiftUI
-
+//
 struct EmailConfirmationLoadingView: View {
     @EnvironmentObject private var session: SessionStore
     

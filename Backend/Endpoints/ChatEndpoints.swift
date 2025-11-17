@@ -7,7 +7,7 @@ struct ChatEndpoints {
     private static let messagesTable = "message"
     private static let auth: AuthRepository = SupabaseAuthRepository()
 
-    // MARK: - Payload Structs
+    // MARK: - Payload Structs 
     private struct CreateMessagePayload: Encodable {
         let group_id: UUID
         let content: String

@@ -31,7 +31,7 @@ final class ColorManager: ObservableObject {
         available = palette
     }
 
-    // ✅ Korrigierte API: Eigene Nachrichten sind immer blau
+    // ✅ Korrigierte API: Eigene Nachrichten sind immer blau 
     func color(for user: AppUser, isCurrentUser: Bool = false) -> Color {
         if isCurrentUser {
             return .blue

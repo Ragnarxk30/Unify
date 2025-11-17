@@ -6,7 +6,7 @@ enum GroupDetailTab: String, CaseIterable, Hashable {
 }
 
 struct GroupDetailView: View {
-    let group: AppGroup // ✅ AppGroup statt Group
+    let group: AppGroup // ✅ AppGroup statt Group 
     @State private var selected: GroupDetailTab = .events
     @State private var showAddEvent = false
 

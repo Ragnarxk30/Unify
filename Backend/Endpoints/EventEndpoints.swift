@@ -1,5 +1,5 @@
 //
-//  SupabaseEventRepository.swift
+//  SupabaseEventRepository.swift 
 //  Unify
 //
 //  Created by Jonas Dunkenberger on 16.11.25.

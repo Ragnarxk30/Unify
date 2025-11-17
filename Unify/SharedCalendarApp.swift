@@ -15,7 +15,7 @@ struct SharedCalendarApp: App {
                     EmailConfirmationLoadingView()
                 } else {
                     LoginView {
-                        // Beim SignUp: session.setWaitingForEmailConfirmation(true)
+                        // Beim SignUp: session.setWaitingForEmailConfirmation(true) 
                     }
                 }
             }

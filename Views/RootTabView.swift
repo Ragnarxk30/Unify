@@ -4,7 +4,7 @@ struct RootTabView: View {
     var body: some View {
         TabView {
             NavigationStack {
-                CalendarListView() // ✅ Ohne ViewModel
+                CalendarListView() // ✅ Ohne ViewModel 
             }
             .tabItem { Label("Mein Kalender", systemImage: "calendar") }
 

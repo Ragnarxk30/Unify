@@ -9,7 +9,7 @@ struct GroupChatView: View {
     @State private var errorMessage: String?
     
     @StateObject private var colorManager = ColorManager()
-    @State private var currentUserId: UUID? // ✅ Nur die ID cached speichern
+    @State private var currentUserId: UUID? // ✅ Nur die ID cached speichern 
 
     var body: some View {
         VStack(spacing: 0) {

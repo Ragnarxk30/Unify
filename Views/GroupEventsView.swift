@@ -56,7 +56,7 @@ struct GroupEventsView: View {
                     }
                 }
                 
-                // Eingabebereich für neuen Termin
+                // Eingabebereich für neuen Termin 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Neuen Gruppentermin hinzufügen")
                         .font(.headline)

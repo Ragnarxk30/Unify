@@ -2,7 +2,7 @@
 //  Supabase.swift
 //  Unify
 //
-//  Created by Jonas Dunkenberger on 03.11.25.
+//  Created by Jonas Dunkenberger on 03.11.25. 
 //
 
 

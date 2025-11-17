@@ -68,7 +68,7 @@ struct GroupsView: View {
             CreateGroupSheet { name, invitedAppleIds in
                 Task {
                     do {
-                        // ✅ Deine create Methode mit invitedAppleIds verwenden
+                        // ✅ Deine create Methode mit invitedAppleIds verwenden 
                         try await groupRepo.create(name: name, invitedAppleIds: invitedAppleIds)
                         await loadGroups()
                     } catch {

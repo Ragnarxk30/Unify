@@ -7,7 +7,7 @@ extension Color {
 }
 
 /**
- Globale Kartenoptik: volle Breite, links ausgerichtet.
+ Globale Kartenoptik: volle Breite, links ausgerichtet. 
  **/
 struct CardModifier: ViewModifier {
     func body(content: Content) -> some View {

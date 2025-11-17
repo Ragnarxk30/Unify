@@ -155,7 +155,7 @@ struct GroupSettingsView: View {
             try await groupRepo.delete(groupId: group.id)
             await MainActor.run {
                 isDeleting = false
-                // Nach dem Löschen einfach schließen. Aufrufende View sollte Liste aktualisieren.
+                // Nach dem Löschen einfach schließen. Aufrufende View sollte Liste aktualisieren. 
                 dismiss()
             }
         } catch {

@@ -17,7 +17,7 @@ public class AuthService {
             redirectTo: redirect
         )
         
-        // Kurze Pause beibehalten um Race Condition zu vermeiden
+        // Kurze Pause beibehalten um Race Condition zu vermeiden 
         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 Sekunden
         
         // Prüfen ob User in auth.users vorhanden ist
