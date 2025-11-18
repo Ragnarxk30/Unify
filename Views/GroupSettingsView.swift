@@ -20,7 +20,6 @@ struct GroupSettingsView: View {
     @State private var memberToRemove: GroupMember?
     @State private var showRemoveMemberConfirm = false
     
-    // ✅ NEU: Aktuelle User ID speichern
     @State private var currentUserId: UUID?
 
     private let groupRepo = SupabaseGroupRepository()
@@ -39,9 +38,18 @@ struct GroupSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Allgemein") {
-                    TextField("Gruppenname", text: $name)
-                        .disabled(isSaving)
+                Section("Gruppenname") {
+                    if isOwner || isAdmin {
+                        // Owner/Admin: Können bearbeiten
+                        TextField("Gruppenname", text: $name)
+                            .disabled(isSaving)
+                    } else {
+                        // Normale User: Nur Anzeige
+                        HStack {
+                            Text(group.name)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 Section("Mitglieder") {
@@ -78,7 +86,6 @@ struct GroupSettingsView: View {
                                 
                                 Spacer()
                                 
-                                // ✅ Owner ODER Admin kann Mitglieder entfernen (außer sich selbst und Owner)
                                 if (isOwner || isAdmin) && member.user_id != group.owner_id && member.user_id != currentUserId {
                                     Button(role: .destructive) {
                                         memberToRemove = member
@@ -94,7 +101,6 @@ struct GroupSettingsView: View {
                         }
                     }
                     
-                    // ✅ Owner ODER Admin kann Mitglieder hinzufügen
                     if isOwner || isAdmin {
                         Button {
                             showAddMember = true
@@ -104,7 +110,6 @@ struct GroupSettingsView: View {
                     }
                 }
 
-                // ✅ NUR Owner kann Gruppe löschen
                 if isOwner {
                     Section {
                         Button(role: .destructive) {
@@ -133,9 +138,12 @@ struct GroupSettingsView: View {
                     Button("Abbrechen") { dismiss() }
                         .disabled(isSaving || isDeleting)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Speichern") { Task { await save() } }
-                        .disabled(isSaving || nameTrimmed.isEmpty || nameTrimmed == group.name)
+                
+                if isOwner || isAdmin {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Speichern") { Task { await save() } }
+                            .disabled(isSaving || nameTrimmed.isEmpty || nameTrimmed == group.name)
+                    }
                 }
             }
             .confirmationDialog(
@@ -189,21 +197,18 @@ struct GroupSettingsView: View {
         errorMessage = message
     }
 
-    // ✅ KORREKTUR: currentUserId wird hier gesetzt
     private func resolveUserRole() async {
         do {
             let uid = try await authRepo.currentUserId()
             
-            // Owner-Status prüfen
             let isUserOwner = (uid == group.owner_id)
             
-            // Admin-Status prüfen - lade Gruppenmitglieder um Rolle zu checken
             let groupMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
             let currentUserMember = groupMembers.first { $0.user_id == uid }
             let isUserAdmin = currentUserMember?.role == .admin
             
             await MainActor.run {
-                currentUserId = uid // ✅ Hier setzen
+                currentUserId = uid
                 isOwner = isUserOwner
                 isAdmin = isUserAdmin
                 print("✅ User Rolle: Owner=\(isOwner), Admin=\(isAdmin), UserID=\(uid)")
@@ -217,7 +222,6 @@ struct GroupSettingsView: View {
         }
     }
     
-    // MARK: - Mitglieder laden
     private func loadMembers() async {
         await MainActor.run {
             isLoadingMembers = true
@@ -240,7 +244,6 @@ struct GroupSettingsView: View {
         }
     }
 
-    // MARK: - Mitglied entfernen
     private func removeMember(_ member: GroupMember) {
         Task {
             do {
@@ -310,7 +313,7 @@ extension AppUser {
     }
 }
 
-// ✅ AddMemberView (bleibt gleich)
+// ✅ AddMemberView
 struct AddMemberView: View {
     @Environment(\.dismiss) private var dismiss
     let groupId: UUID
