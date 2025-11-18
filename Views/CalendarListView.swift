@@ -11,6 +11,7 @@ struct CalendarListView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var editingEvent: Event? = nil
+    @State private var showAddEvent = false
 
     private let sideInset: CGFloat = 20
 
@@ -59,6 +60,16 @@ struct CalendarListView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showAddEvent = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Neuen Termin anlegen")
+            }
+        }
         .task {
             await loadEvents()
         }
@@ -66,6 +77,12 @@ struct CalendarListView: View {
             EditEventView(event: event) {
                 Task { await loadEvents() }
             }
+        }
+        .sheet(isPresented: $showAddEvent) {
+            CreatePersonalEventView {
+                Task { await loadEvents() }   // nach Erstellung neu laden
+            }
+            .presentationDetents([.medium, .large])
         }
     }
 
