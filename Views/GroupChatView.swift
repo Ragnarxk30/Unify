@@ -11,10 +11,9 @@ struct GroupChatView: View {
     @StateObject private var speechManager = SpeechToTextManager()
     @State private var currentUserId: UUID?
     
-    // ✅ Polling Timer für automatische Updates
-    @State private var pollingTimer: Timer?
-    @State private var lastUpdate = Date()
-
+    // ✅ Cache für User-Daten in der View
+    @State private var userCache: [UUID: AppUser] = [:]
+    
     var body: some View {
         VStack(spacing: 0) {
             // Nachrichtenliste
@@ -44,6 +43,7 @@ struct GroupChatView: View {
 
             // Composer mit Sprach-Button
             HStack(spacing: 10) {
+                // Sprach-Button
                 Button {
                     if speechManager.isRecording {
                         speechManager.stopRecording()
@@ -117,11 +117,11 @@ struct GroupChatView: View {
             Task {
                 await loadCurrentUserId()
                 await loadMessages()
-                startPolling()
+                await startRealtimeConnection()
             }
         }
         .onDisappear {
-            stopPolling()
+            ChatEndpoints.stopRealtimeSubscription(for: group.id)
         }
         .alert("Berechtigung benötigt", isPresented: .constant(speechManager.errorMessage != nil)) {
             Button("OK") { speechManager.errorMessage = nil }
@@ -143,37 +143,70 @@ struct GroupChatView: View {
         }
     }
 
-    // MARK: - Polling für automatische Updates
-    private func startPolling() {
-        print("🔄 Starte Polling alle 3 Sekunden")
-        
-        // Sofort starten
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-            Task {
-                await checkForNewMessages()
-            }
+    // MARK: - Real-Time Connection
+    @MainActor
+    private func startRealtimeConnection() async {
+        do {
+            try await ChatEndpoints.startRealtimeSubscription(
+                for: group.id,
+                onNewMessage: { newMessage in
+                    // WhatsApp-Style: Sofort anzeigen, Cache regelt den Rest
+                    if !messages.contains(where: { $0.id == newMessage.id }) {
+                        // Prüfe ob wir User-Daten im Cache haben
+                        if let cachedUser = userCache[newMessage.sent_by] {
+                            // Erstelle Nachricht mit User-Daten
+                            let messageWithUser = Message(
+                                id: newMessage.id,
+                                group_id: newMessage.group_id,
+                                content: newMessage.content,
+                                sent_by: newMessage.sent_by,
+                                sent_at: newMessage.sent_at,
+                                user: cachedUser
+                            )
+                            messages.append(messageWithUser)
+                        } else {
+                            // Ohne User-Daten anzeigen
+                            messages.append(newMessage)
+                            
+                            // Im Hintergrund User laden
+                            Task {
+                                await loadUserForMessage(newMessage)
+                            }
+                        }
+                        print("📨 Nachricht angezeigt: '\(newMessage.content)'")
+                    }
+                }
+            )
+        } catch {
+            print("❌ Real-Time Verbindung fehlgeschlagen: \(error)")
+            errorMessage = "Echtzeit-Chat nicht verfügbar"
         }
     }
-    
-    private func stopPolling() {
-        pollingTimer?.invalidate()
-        pollingTimer = nil
-        print("⏹️ Polling gestoppt")
-    }
-    
-    private func checkForNewMessages() async {
+
+    // MARK: - User für Nachricht laden
+    private func loadUserForMessage(_ message: Message) async {
         do {
-            let fetchedMessages = try await ChatEndpoints.fetchMessages(for: group.id)
+            let user = try await ChatEndpoints.fetchUser(for: message.sent_by)
             
             await MainActor.run {
-                // Nur updaten wenn sich was geändert hat
-                if fetchedMessages.count != messages.count {
-                    messages = fetchedMessages
-                    print("🔄 Nachrichten aktualisiert: \(messages.count) Nachrichten")
+                // Füge User zum Cache hinzu
+                userCache[message.sent_by] = user
+                
+                // Aktualisiere die Nachricht mit User-Daten
+                if let index = messages.firstIndex(where: { $0.id == message.id }) {
+                    let updatedMessage = Message(
+                        id: message.id,
+                        group_id: message.group_id,
+                        content: message.content,
+                        sent_by: message.sent_by,
+                        sent_at: message.sent_at,
+                        user: user
+                    )
+                    messages[index] = updatedMessage
                 }
             }
         } catch {
-            print("❌ Fehler beim Polling: \(error)")
+            print("❌ User konnte nicht geladen werden: \(error)")
         }
     }
 
@@ -200,6 +233,7 @@ struct GroupChatView: View {
     private func loadMessages() async {
         await MainActor.run {
             isLoading = true
+            errorMessage = nil
         }
         
         do {
@@ -207,6 +241,14 @@ struct GroupChatView: View {
             
             await MainActor.run {
                 messages = fetchedMessages
+                
+                // ✅ Fülle Cache mit allen Usern
+                for message in fetchedMessages {
+                    if let user = message.user {
+                        userCache[message.sent_by] = user
+                    }
+                }
+                
                 print("✅ \(messages.count) Nachrichten geladen")
             }
         } catch {
@@ -226,15 +268,8 @@ struct GroupChatView: View {
         Task { @MainActor in
             do {
                 let newMessage = try await ChatEndpoints.sendMessage(groupID: group.id, content: text)
-                
-                // Sofortiges Feedback: Nachricht zur Liste hinzufügen
-                messages.append(newMessage)
+                // Die Nachricht wird automatisch über Real-Time hinzugefügt
                 print("📨 Nachricht gesendet: '\(text)' an Gruppe \(group.id)")
-                
-                // Sofort nach dem Senden nach neuen Nachrichten suchen
-                Task {
-                    await checkForNewMessages()
-                }
             } catch {
                 errorMessage = "Nachricht konnte nicht gesendet werden: \(error.localizedDescription)"
                 print("❌ Fehler beim Senden der Nachricht: \(error)")
@@ -253,7 +288,7 @@ struct GroupChatView: View {
     }
 }
 
-// ✅ ChatBubbleView (bleibt unverändert)
+// ✅ ChatBubbleView für korrekte Ausrichtung
 private struct ChatBubbleView: View {
     let message: Message
     let colorManager: ColorManager
@@ -262,6 +297,7 @@ private struct ChatBubbleView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
+                // Avatar links für andere User
                 Circle()
                     .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
                     .frame(width: 36, height: 36)
@@ -274,13 +310,14 @@ private struct ChatBubbleView: View {
                 
                 messageContent
                 
-                Spacer()
+                Spacer() // ✅ Pusht fremde Nachrichten nach links
                 
             } else {
-                Spacer()
+                Spacer() // ✅ Pusht eigene Nachrichten nach rechts
                 
                 messageContent
                 
+                // Avatar rechts für aktiven User
                 Circle()
                     .fill(Color.blue)
                     .frame(width: 36, height: 36)
@@ -297,6 +334,7 @@ private struct ChatBubbleView: View {
     
     private var messageContent: some View {
         VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 4) {
+            // Sender Name nur bei fremden Nachrichten anzeigen
             if !isCurrentUser {
                 Text(message.sender.display_name)
                     .font(.caption)
