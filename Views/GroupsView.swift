@@ -65,11 +65,11 @@ struct GroupsView: View {
             }
         }
         .sheet(isPresented: $showCreate) {
-            CreateGroupSheet { name, invitedAppleIds in
+            CreateGroupSheet { name, invitedUsers in
                 Task {
                     do {
-                        // ✅ Deine create Methode mit invitedAppleIds verwenden 
-                        try await groupRepo.create(name: name, invitedAppleIds: invitedAppleIds)
+                        // ✅ Jetzt mit Rollen übergeben
+                        try await groupRepo.create(name: name, invitedUsers: invitedUsers)
                         await loadGroups()
                     } catch {
                         print("Fehler beim Erstellen der Gruppe:", error.localizedDescription)
@@ -100,7 +100,6 @@ struct GroupsView: View {
         
         isLoading = false
     }
-
 }
 
 private struct GroupRow: View {
@@ -145,32 +144,20 @@ private struct CreateGroupSheet: View {
 
     // Eine Zeile pro Einladung (E-Mail + Rolle)
     private struct InviteRow: Identifiable {
-        enum Role: String, CaseIterable, Identifiable {
-            case member   // <- entspricht deinem Enum-Wert in Supabase
-            case admin
-            case owner
-
-            var id: String { rawValue }
-
-            var label: String {
-                switch self {
-                case .member: return "Mitglied"
-                case .admin:  return "Admin"
-                case .owner:  return "Owner"
-                }
-            }
-        }
-
         let id = UUID()
         var email: String = ""
-        var role: Role = .member    // Default: member
+        var role: role = .user    // ✅ Dein enum role verwenden
+        
+        // ✅ Nur user und admin zur Auswahl
+        static var availableRoles: [role] {
+            [.user, .admin]
+        }
     }
 
     @State private var invites: [InviteRow] = [InviteRow()]
 
-    /// Aktuell nur Name + E-Mails.
-    /// Rollen sind schon im State und können später leicht ergänzt werden.
-    let onCreate: (String, [String]) -> Void
+    // ✅ ANPASSUNG: Jetzt mit Rollen übergeben
+    let onCreate: (String, [(email: String, role: role)]) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -203,9 +190,9 @@ private struct CreateGroupSheet: View {
                             .autocorrectionDisabled()
 
                         Picker("Rolle", selection: $invite.role) {
-                            ForEach(InviteRow.Role.allCases) { role in
-                                Text(role.label).tag(role)
-                            }
+                            // ✅ Nur user und admin
+                            Text("Mitglied").tag(role.user)
+                            Text("Admin").tag(role.admin)
                         }
                         .pickerStyle(.menu)
                     }
@@ -228,12 +215,12 @@ private struct CreateGroupSheet: View {
                 Button("Abbrechen") { dismiss() }
                 Spacer()
                 Button {
-                    // Nur Mails, Rollen kommen später dazu
-                    let cleanedEmails = invites
-                        .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        .filter { !$0.isEmpty }
+                    // ✅ Emails mit Rollen übergeben
+                    let invitedUsers = invites
+                        .map { (email: $0.email.trimmingCharacters(in: .whitespacesAndNewlines), role: $0.role) }
+                        .filter { !$0.email.isEmpty }
 
-                    onCreate(name, cleanedEmails)
+                    onCreate(name, invitedUsers)
                     dismiss()
                 } label: {
                     Text("Gruppe erstellen")

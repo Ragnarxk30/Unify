@@ -11,15 +11,21 @@ struct GroupSettingsView: View {
     @State private var isDeleting = false
     @State private var showDeleteConfirm = false
     @State private var isOwner = false
+    @State private var isAdmin = false
     @State private var errorMessage: String?
     @State private var members: [GroupMember] = []
     @State private var isLoadingMembers = false
     @State private var showAddMember = false
+    
+    @State private var memberToRemove: GroupMember?
+    @State private var showRemoveMemberConfirm = false
+    
+    // ✅ NEU: Aktuelle User ID speichern
+    @State private var currentUserId: UUID?
 
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
 
-    // ✅ Computed Property an der richtigen Stelle
     private var nameTrimmed: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -38,7 +44,6 @@ struct GroupSettingsView: View {
                         .disabled(isSaving)
                 }
 
-                // ✅ Mitgliederverwaltung
                 Section("Mitglieder") {
                     if isLoadingMembers {
                         HStack {
@@ -73,10 +78,11 @@ struct GroupSettingsView: View {
                                 
                                 Spacer()
                                 
-                                // ✅ Owner kann Mitglieder entfernen (außer sich selbst)
-                                if isOwner && member.user_id != group.owner_id {
+                                // ✅ Owner ODER Admin kann Mitglieder entfernen (außer sich selbst und Owner)
+                                if (isOwner || isAdmin) && member.user_id != group.owner_id && member.user_id != currentUserId {
                                     Button(role: .destructive) {
-                                        removeMember(member)
+                                        memberToRemove = member
+                                        showRemoveMemberConfirm = true
                                     } label: {
                                         Image(systemName: "person.fill.xmark")
                                             .foregroundColor(.red)
@@ -88,7 +94,8 @@ struct GroupSettingsView: View {
                         }
                     }
                     
-                    if isOwner {
+                    // ✅ Owner ODER Admin kann Mitglieder hinzufügen
+                    if isOwner || isAdmin {
                         Button {
                             showAddMember = true
                         } label: {
@@ -97,6 +104,7 @@ struct GroupSettingsView: View {
                     }
                 }
 
+                // ✅ NUR Owner kann Gruppe löschen
                 if isOwner {
                     Section {
                         Button(role: .destructive) {
@@ -142,9 +150,26 @@ struct GroupSettingsView: View {
             } message: {
                 Text("Diese Aktion kann nicht rückgängig gemacht werden.")
             }
+            .confirmationDialog(
+                "Mitglied entfernen?",
+                isPresented: $showRemoveMemberConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Mitglied entfernen", role: .destructive) {
+                    if let member = memberToRemove {
+                        removeMember(member)
+                    }
+                }
+                Button("Abbrechen", role: .cancel) {
+                    memberToRemove = nil
+                }
+            } message: {
+                if let member = memberToRemove {
+                    Text("Möchtest du \(member.memberUser.display_name) wirklich aus der Gruppe entfernen?")
+                }
+            }
             .sheet(isPresented: $showAddMember) {
                 AddMemberView(groupId: group.id) { newMember in
-                    // Mitglied wurde hinzugefügt - Liste aktualisieren
                     Task {
                         await loadMembers()
                     }
@@ -152,7 +177,7 @@ struct GroupSettingsView: View {
             }
             .onAppear {
                 Task {
-                    await resolveOwnership()
+                    await resolveUserRole()
                     await loadMembers()
                 }
             }
@@ -164,15 +189,30 @@ struct GroupSettingsView: View {
         errorMessage = message
     }
 
-    private func resolveOwnership() async {
+    // ✅ KORREKTUR: currentUserId wird hier gesetzt
+    private func resolveUserRole() async {
         do {
             let uid = try await authRepo.currentUserId()
+            
+            // Owner-Status prüfen
+            let isUserOwner = (uid == group.owner_id)
+            
+            // Admin-Status prüfen - lade Gruppenmitglieder um Rolle zu checken
+            let groupMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
+            let currentUserMember = groupMembers.first { $0.user_id == uid }
+            let isUserAdmin = currentUserMember?.role == .admin
+            
             await MainActor.run {
-                isOwner = (uid == group.owner_id)
+                currentUserId = uid // ✅ Hier setzen
+                isOwner = isUserOwner
+                isAdmin = isUserAdmin
+                print("✅ User Rolle: Owner=\(isOwner), Admin=\(isAdmin), UserID=\(uid)")
             }
         } catch {
             await MainActor.run {
+                currentUserId = nil
                 isOwner = false
+                isAdmin = false
             }
         }
     }
@@ -182,30 +222,20 @@ struct GroupSettingsView: View {
         await MainActor.run {
             isLoadingMembers = true
             errorMessage = nil
-            print("🔄 Starte loadMembers für Gruppe \(group.id)")
         }
         
         do {
-            print("🔍 Rufe fetchGroupMembers auf...")
             let fetchedMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
             
             await MainActor.run {
                 members = fetchedMembers
                 isLoadingMembers = false
                 print("✅ \(members.count) Mitglieder geladen")
-                
-                // Debug: Zeige alle geladenen Mitglieder
-                for member in members {
-                    print("   👤 \(member.memberUser.display_name) - \(member.role.rawValue)")
-                }
             }
         } catch {
             await MainActor.run {
                 isLoadingMembers = false
-                let errorMsg = "Mitglieder konnten nicht geladen werden: \(error.localizedDescription)"
-                setError(errorMsg)
-                print("❌ \(errorMsg)")
-                print("🔍 Full Error: \(error)")
+                setError("Mitglieder konnten nicht geladen werden: \(error.localizedDescription)")
             }
         }
     }
@@ -217,10 +247,12 @@ struct GroupSettingsView: View {
                 try await groupRepo.removeMember(groupId: group.id, userId: member.user_id)
                 await MainActor.run {
                     members.removeAll { $0.user_id == member.user_id }
+                    memberToRemove = nil
                 }
             } catch {
                 await MainActor.run {
                     setError("Mitglied konnte nicht entfernt werden: \(error.localizedDescription)")
+                    memberToRemove = nil
                 }
             }
         }
@@ -278,15 +310,17 @@ extension AppUser {
     }
 }
 
-// ✅ AddMemberView (vereinfacht)
+// ✅ AddMemberView (bleibt gleich)
 struct AddMemberView: View {
     @Environment(\.dismiss) private var dismiss
     let groupId: UUID
     let onMemberAdded: (GroupMember) -> Void
     
     @State private var email = ""
+    @State private var selectedRole: role = .user
     @State private var isAdding = false
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     
     private let groupRepo = SupabaseGroupRepository()
     
@@ -298,16 +332,46 @@ struct AddMemberView: View {
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        .disabled(isAdding)
+                    
+                    Picker("Rolle", selection: $selectedRole) {
+                        Text("Mitglied").tag(role.user)
+                        Text("Admin").tag(role.admin)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(isAdding)
+                    
                 } header: {
                     Text("Mitglied einladen")
                 } footer: {
                     Text("Die Person muss bereits einen Account haben.")
                 }
                 
+                if isAdding {
+                    Section {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Lade ein...")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                
                 if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.caption)
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    }
+                }
+                
+                if let successMessage {
+                    Section {
+                        Text(successMessage)
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
                 }
             }
             .navigationTitle("Mitglied hinzufügen")
@@ -315,17 +379,55 @@ struct AddMemberView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
+                        .disabled(isAdding)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Hinzufügen") { Task { await addMember() } }
+                    Button("Einladen") { Task { await inviteMember() } }
                         .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
                 }
             }
         }
     }
     
-    private func addMember() async {
-        // Hier müsstest du die Logik implementieren um User per E-Mail zu finden und hinzuzufügen
-        // Das ist komplexer und erfordert zusätzliche Endpoints
+    private func inviteMember() async {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        await MainActor.run {
+            errorMessage = nil
+            successMessage = nil
+            isAdding = true
+        }
+        
+        do {
+            try await groupRepo.inviteMember(groupId: groupId, email: trimmedEmail, role: selectedRole)
+            
+            await MainActor.run {
+                successMessage = "✅ \(trimmedEmail) wurde als \(selectedRole.displayName) eingeladen!"
+                isAdding = false
+                
+                let tempMember = GroupMember(
+                    user_id: UUID(),
+                    group_id: groupId,
+                    role: selectedRole,
+                    joined_at: Date(),
+                    user: AppUser(
+                        id: UUID(),
+                        display_name: trimmedEmail,
+                        email: trimmedEmail
+                    )
+                )
+                onMemberAdded(tempMember)
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                dismiss()
+            }
+            
+        } catch {
+            await MainActor.run {
+                errorMessage = "❌ Fehler: \(error.localizedDescription)"
+                isAdding = false
+            }
+        }
     }
 }

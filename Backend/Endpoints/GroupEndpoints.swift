@@ -1,4 +1,3 @@
-// group_endpoints.swift 
 import Foundation
 import Supabase
 
@@ -51,7 +50,7 @@ struct SupabaseGroupRepository: GroupRepository {
                     display_name,
                     email
                 )
-            """)  // ✅ KEINE KOMMENTARE IN DER QUERY!
+            """)
             .eq("group_id", value: groupId.uuidString)
             .execute()
             .value
@@ -60,8 +59,8 @@ struct SupabaseGroupRepository: GroupRepository {
         return members
     }
     
-
-    func create(name: String, invitedAppleIds: [String]) async throws {
+    // ✅ HAUPT-Funktion mit Rollen-Unterstützung
+    func create(name: String, invitedUsers: [(email: String, role: role)]) async throws {
         let ownerId = try await auth.currentUserId()
 
         // 1) Gruppe anlegen
@@ -91,36 +90,12 @@ struct SupabaseGroupRepository: GroupRepository {
 
         let groupId = created.id
 
-        // 2) E-Mails säubern + deduplizieren
-        let cleaned = Array(
-            Set(invitedAppleIds
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty })
-        )
+        // 2) E-Mails säubern
+        let cleanedUsers = invitedUsers
+            .map { (email: $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), role: $0.role) }
+            .filter { !$0.email.isEmpty }
 
         // 3) E-Mails → user_ids auflösen
-        var memberUserIds: [UUID] = []
-        var unknownEmails: [String] = []
-
-        if !cleaned.isEmpty {
-            let userRows: [AppUser] = try await db
-                .from(usersTable)
-                .select("id,display_name,email")
-                .in("email", values: cleaned)
-                .execute()
-                .value
-
-            let byEmail = Dictionary(uniqueKeysWithValues: userRows.map { ($0.email.lowercased(), $0.id) })
-            for e in cleaned {
-                if let uid = byEmail[e] {
-                    memberUserIds.append(uid)
-                } else {
-                    unknownEmails.append(e)
-                }
-            }
-        }
-
-        // 4) Member-Bulk - ✅ ENUM VALUES direkt verwenden!
         struct MemberRequest: Encodable {
             let group_id: UUID
             let user_id: UUID
@@ -128,13 +103,36 @@ struct SupabaseGroupRepository: GroupRepository {
         }
         
         var memberRequests: [MemberRequest] = [
-            MemberRequest(group_id: groupId, user_id: ownerId, role: .admin) // ✅ .admin nicht "admin"
+            MemberRequest(group_id: groupId, user_id: ownerId, role: .admin)
         ]
         
-        memberRequests.append(contentsOf: memberUserIds.map { userId in
-            MemberRequest(group_id: groupId, user_id: userId, role: .user) // ✅ .user nicht "user"
-        })
+        var unknownEmails: [String] = []
 
+        if !cleanedUsers.isEmpty {
+            let emails = cleanedUsers.map { $0.email }
+            let userRows: [AppUser] = try await db
+                .from(usersTable)
+                .select("id,display_name,email")
+                .in("email", values: emails)
+                .execute()
+                .value
+
+            let byEmail = Dictionary(uniqueKeysWithValues: userRows.map { ($0.email.lowercased(), $0.id) })
+            
+            for invitedUser in cleanedUsers {
+                if let uid = byEmail[invitedUser.email] {
+                    memberRequests.append(MemberRequest(
+                        group_id: groupId,
+                        user_id: uid,
+                        role: invitedUser.role
+                    ))
+                } else {
+                    unknownEmails.append(invitedUser.email)
+                }
+            }
+        }
+
+        // 4) Member-Bulk
         if !memberRequests.isEmpty {
             _ = try await db
                 .from(membersTable)
@@ -146,23 +144,35 @@ struct SupabaseGroupRepository: GroupRepository {
         if !unknownEmails.isEmpty {
             throw GroupError.unknownAppleIds(unknownEmails)
         }
+        
+        print("✅ Gruppe '\(name)' erstellt mit \(memberRequests.count) Mitgliedern")
     }
     
-    func addMember(groupId: UUID, userId: UUID, role: role) async throws { // ✅ role: role nicht role: String
+    // ✅ Abwärtskompatibilität - INTERNE Implementierung
+    func create(name: String, invitedAppleIds: [String]) async throws {
+        // Explizite Typangabe um den Überladungskonflikt zu vermeiden
+        let userRole: role = .user
+        let invitedUsers = invitedAppleIds.map { (email: $0, role: userRole) }
+        try await create(name: name, invitedUsers: invitedUsers)
+    }
+    
+    func addMember(groupId: UUID, userId: UUID, role: role) async throws {
         _ = try await auth.currentUserId()
 
         struct AddMemberRequest: Encodable {
             let group_id: UUID
             let user_id: UUID
-            let role: role // ✅ ENUM type
+            let role: role
         }
         
         let request = AddMemberRequest(group_id: groupId, user_id: userId, role: role)
 
         try await db
             .from(membersTable)
-            .insert(request)
+            .insert(request, returning: .minimal)
             .execute()
+            
+        print("✅ Mitglied \(userId) zu Gruppe \(groupId) hinzugefügt mit Rolle: \(role.rawValue)")
     }
     
     func removeMember(groupId: UUID, userId: UUID) async throws {
@@ -174,6 +184,8 @@ struct SupabaseGroupRepository: GroupRepository {
             .eq("group_id", value: groupId.uuidString)
             .eq("user_id", value: userId.uuidString)
             .execute()
+            
+        print("✅ Mitglied \(userId) aus Gruppe \(groupId) entfernt")
     }
     
     func rename(groupId: UUID, to newName: String) async throws {
@@ -198,8 +210,6 @@ struct SupabaseGroupRepository: GroupRepository {
     }
 
     func delete(groupId: UUID) async throws {
-        let ownerId = try await auth.currentUserId()
-
         try await db
             .from(groupsTable)
             .delete()
@@ -207,5 +217,53 @@ struct SupabaseGroupRepository: GroupRepository {
             .execute()
         
         print("✅ Gruppe \(groupId) gelöscht")
+    }
+    
+    // MARK: - Member einladen
+    func inviteMember(groupId: UUID, email: String, role: role = .user) async throws {
+        // 1) User anhand der E-Mail finden
+        let users: [AppUser] = try await db
+            .from(usersTable)
+            .select("id, display_name, email")
+            .eq("email", value: email.lowercased())
+            .execute()
+            .value
+        
+        guard let invitedUser = users.first else {
+            throw GroupError.userNotFound
+        }
+        
+        // 2) Prüfen ob User bereits Mitglied ist
+        let existingMembers: [GroupMember] = try await db
+            .from(membersTable)
+            .select("user_id")
+            .eq("group_id", value: groupId.uuidString)
+            .eq("user_id", value: invitedUser.id.uuidString)
+            .execute()
+            .value
+        
+        guard existingMembers.isEmpty else {
+            throw NSError(domain: "GroupError", code: 409, userInfo: [NSLocalizedDescriptionKey: "Benutzer ist bereits Gruppenmitglied"])
+        }
+        
+        // 3) Mitglied hinzufügen
+        struct InviteMemberRequest: Encodable {
+            let group_id: UUID
+            let user_id: UUID
+            let role: role
+        }
+        
+        let request = InviteMemberRequest(
+            group_id: groupId,
+            user_id: invitedUser.id,
+            role: role
+        )
+        
+        try await db
+            .from(membersTable)
+            .insert(request, returning: .minimal)
+            .execute()
+        
+        print("✅ Benutzer \(email) zu Gruppe \(groupId) eingeladen mit Rolle: \(role.rawValue)")
     }
 }
