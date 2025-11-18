@@ -10,7 +10,10 @@ struct GroupChatView: View {
     @StateObject private var colorManager = ColorManager()
     @StateObject private var speechManager = SpeechToTextManager()
     @State private var currentUserId: UUID?
-    @State private var showSpeechUI = false
+    
+    // ✅ Polling Timer für automatische Updates
+    @State private var pollingTimer: Timer?
+    @State private var lastUpdate = Date()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,7 +33,7 @@ struct GroupChatView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: messages.count) { _ in
+                .onChange(of: messages.count) { oldValue, newValue in
                     scrollToBottom(proxy)
                 }
                 .onAppear {
@@ -41,7 +44,6 @@ struct GroupChatView: View {
 
             // Composer mit Sprach-Button
             HStack(spacing: 10) {
-                // Sprach-Button
                 Button {
                     if speechManager.isRecording {
                         speechManager.stopRecording()
@@ -115,7 +117,11 @@ struct GroupChatView: View {
             Task {
                 await loadCurrentUserId()
                 await loadMessages()
+                startPolling()
             }
+        }
+        .onDisappear {
+            stopPolling()
         }
         .alert("Berechtigung benötigt", isPresented: .constant(speechManager.errorMessage != nil)) {
             Button("OK") { speechManager.errorMessage = nil }
@@ -137,6 +143,40 @@ struct GroupChatView: View {
         }
     }
 
+    // MARK: - Polling für automatische Updates
+    private func startPolling() {
+        print("🔄 Starte Polling alle 3 Sekunden")
+        
+        // Sofort starten
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            Task {
+                await checkForNewMessages()
+            }
+        }
+    }
+    
+    private func stopPolling() {
+        pollingTimer?.invalidate()
+        pollingTimer = nil
+        print("⏹️ Polling gestoppt")
+    }
+    
+    private func checkForNewMessages() async {
+        do {
+            let fetchedMessages = try await ChatEndpoints.fetchMessages(for: group.id)
+            
+            await MainActor.run {
+                // Nur updaten wenn sich was geändert hat
+                if fetchedMessages.count != messages.count {
+                    messages = fetchedMessages
+                    print("🔄 Nachrichten aktualisiert: \(messages.count) Nachrichten")
+                }
+            }
+        } catch {
+            print("❌ Fehler beim Polling: \(error)")
+        }
+    }
+
     // MARK: - Aktuelle User-ID laden
     private func loadCurrentUserId() async {
         do {
@@ -150,17 +190,16 @@ struct GroupChatView: View {
         }
     }
 
-    // MARK: - Prüfen ob Nachricht vom aktuellen User (SYNCHRON)
+    // MARK: - Prüfen ob Nachricht vom aktuellen User
     private func isCurrentUser(_ message: Message) -> Bool {
         guard let currentUserId = currentUserId else { return false }
         return message.sent_by == currentUserId
     }
 
-    // MARK: - Nachrichten laden
+    // MARK: - Nachrichten laden (verwendet ChatEndpoints)
     private func loadMessages() async {
         await MainActor.run {
             isLoading = true
-            errorMessage = nil
         }
         
         do {
@@ -182,13 +221,20 @@ struct GroupChatView: View {
         }
     }
 
-    // MARK: - Nachricht senden
+    // MARK: - Nachricht senden (verwendet ChatEndpoints)
     private func sendMessage(_ text: String) {
         Task { @MainActor in
             do {
                 let newMessage = try await ChatEndpoints.sendMessage(groupID: group.id, content: text)
+                
+                // Sofortiges Feedback: Nachricht zur Liste hinzufügen
                 messages.append(newMessage)
                 print("📨 Nachricht gesendet: '\(text)' an Gruppe \(group.id)")
+                
+                // Sofort nach dem Senden nach neuen Nachrichten suchen
+                Task {
+                    await checkForNewMessages()
+                }
             } catch {
                 errorMessage = "Nachricht konnte nicht gesendet werden: \(error.localizedDescription)"
                 print("❌ Fehler beim Senden der Nachricht: \(error)")
@@ -207,7 +253,7 @@ struct GroupChatView: View {
     }
 }
 
-// ✅ ChatBubbleView für korrekte Ausrichtung
+// ✅ ChatBubbleView (bleibt unverändert)
 private struct ChatBubbleView: View {
     let message: Message
     let colorManager: ColorManager
@@ -216,7 +262,6 @@ private struct ChatBubbleView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
-                // Avatar links für andere User
                 Circle()
                     .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
                     .frame(width: 36, height: 36)
@@ -229,14 +274,13 @@ private struct ChatBubbleView: View {
                 
                 messageContent
                 
-                Spacer() // ✅ Pusht fremde Nachrichten nach links
+                Spacer()
                 
             } else {
-                Spacer() // ✅ Pusht eigene Nachrichten nach rechts
+                Spacer()
                 
                 messageContent
                 
-                // Avatar rechts für aktiven User
                 Circle()
                     .fill(Color.blue)
                     .frame(width: 36, height: 36)
@@ -253,7 +297,6 @@ private struct ChatBubbleView: View {
     
     private var messageContent: some View {
         VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 4) {
-            // Sender Name nur bei fremden Nachrichten anzeigen
             if !isCurrentUser {
                 Text(message.sender.display_name)
                     .font(.caption)
