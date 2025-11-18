@@ -144,7 +144,7 @@ struct GroupSettingsView: View {
             }
             .sheet(isPresented: $showAddMember) {
                 AddMemberView(groupId: group.id) { newMember in
-                    // Mitglied wurde hinzugefügt - Liste aktualisieren
+                    // ✅ Mitglied wurde hinzugefügt - Liste neu laden um echte Daten zu bekommen
                     Task {
                         await loadMembers()
                     }
@@ -278,15 +278,17 @@ extension AppUser {
     }
 }
 
-// ✅ AddMemberView (vereinfacht)
+// ✅ AddMemberView mit inviteMember Endpoint
 struct AddMemberView: View {
     @Environment(\.dismiss) private var dismiss
     let groupId: UUID
     let onMemberAdded: (GroupMember) -> Void
     
     @State private var email = ""
+    @State private var selectedRole: role = .user // ✅ Default: user
     @State private var isAdding = false
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     
     private let groupRepo = SupabaseGroupRepository()
     
@@ -298,16 +300,48 @@ struct AddMemberView: View {
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        .disabled(isAdding)
+                    
+                    // ✅ Rollen-Auswahl
+                    Picker("Rolle", selection: $selectedRole) {
+                        Text("Mitglied").tag(role.user)
+                        Text("Admin").tag(role.admin)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(isAdding)
+                    
                 } header: {
                     Text("Mitglied einladen")
                 } footer: {
                     Text("Die Person muss bereits einen Account haben.")
                 }
                 
+                // Rest bleibt gleich...
+                if isAdding {
+                    Section {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Lade ein...")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                
                 if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.caption)
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    }
+                }
+                
+                if let successMessage {
+                    Section {
+                        Text(successMessage)
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
                 }
             }
             .navigationTitle("Mitglied hinzufügen")
@@ -315,17 +349,56 @@ struct AddMemberView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
+                        .disabled(isAdding)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Hinzufügen") { Task { await addMember() } }
+                    Button("Einladen") { Task { await inviteMember() } }
                         .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
                 }
             }
         }
     }
     
-    private func addMember() async {
-        // Hier müsstest du die Logik implementieren um User per E-Mail zu finden und hinzuzufügen
-        // Das ist komplexer und erfordert zusätzliche Endpoints
+    private func inviteMember() async {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        await MainActor.run {
+            errorMessage = nil
+            successMessage = nil
+            isAdding = true
+        }
+        
+        do {
+            // ✅ Jetzt mit Rolle übergeben
+            try await groupRepo.inviteMember(groupId: groupId, email: trimmedEmail, role: selectedRole)
+            
+            await MainActor.run {
+                successMessage = "✅ \(trimmedEmail) wurde als \(selectedRole.displayName) eingeladen!"
+                isAdding = false
+                
+                let tempMember = GroupMember(
+                    user_id: UUID(),
+                    group_id: groupId,
+                    role: selectedRole, // ✅ Die gewählte Rolle verwenden
+                    joined_at: Date(),
+                    user: AppUser(
+                        id: UUID(),
+                        display_name: trimmedEmail,
+                        email: trimmedEmail
+                    )
+                )
+                onMemberAdded(tempMember)
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                dismiss()
+            }
+            
+        } catch {
+            await MainActor.run {
+                errorMessage = "❌ Fehler: \(error.localizedDescription)"
+                isAdding = false
+            }
+        }
     }
 }
