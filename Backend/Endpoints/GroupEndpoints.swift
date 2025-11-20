@@ -38,6 +38,27 @@ struct SupabaseGroupRepository: GroupRepository {
     }
     
     func fetchGroupMembers(groupId: UUID) async throws -> [GroupMember] {
+        // 1) Gruppe holen um owner_id zu bekommen
+        let group: AppGroup = try await db
+            .from(groupsTable)
+            .select("""
+                id,
+                name,
+                owner_id,
+                user:user!owner_id(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
+            .eq("id", value: groupId.uuidString)
+            .single()
+            .execute()
+            .value
+
+        print("🔍 Gruppe geladen - Owner ID: \(group.owner_id), Owner Name: \(group.owner.display_name)")
+
+        // 2) Mitglieder aus group_members holen
         let members: [GroupMember] = try await db
             .from("group_members")
             .select("""
@@ -55,11 +76,37 @@ struct SupabaseGroupRepository: GroupRepository {
             .execute()
             .value
         
-        print("✅ fetchGroupMembers: \(members.count) Mitglieder geladen")
-        return members
+        print("🔍 Mitglieder aus DB: \(members.count)")
+        for member in members {
+            print("   - \(member.user_id): \(member.role.rawValue) - \(member.memberUser.display_name)")
+        }
+        
+        // 3) Owner immer als erstes in die Liste einfügen
+        var allMembers = members
+        
+        // Owner Member erstellen
+        let ownerMember = GroupMember(
+            user_id: group.owner_id,
+            group_id: groupId,
+            role: .owner,
+            joined_at: Date(),
+            user: group.user
+        )
+        
+        // Owner entfernen falls schon in members (mit falscher Rolle)
+        allMembers.removeAll { $0.user_id == group.owner_id }
+        
+        // Owner immer als erstes einfügen
+        allMembers.insert(ownerMember, at: 0)
+        
+        print("✅ fetchGroupMembers: \(allMembers.count) Mitglieder geladen")
+        for member in allMembers {
+            print("   📋 \(member.user_id): \(member.role.rawValue) - \(member.memberUser.display_name)")
+        }
+        
+        return allMembers
     }
     
-    // ✅ HAUPT-Funktion mit Rollen-Unterstützung
     func create(name: String, invitedUsers: [(email: String, role: role)]) async throws {
         let ownerId = try await auth.currentUserId()
 
@@ -102,8 +149,9 @@ struct SupabaseGroupRepository: GroupRepository {
             let role: role
         }
         
+        // 👈 OWNER bekommt .owner Rolle
         var memberRequests: [MemberRequest] = [
-            MemberRequest(group_id: groupId, user_id: ownerId, role: .admin)
+            MemberRequest(group_id: groupId, user_id: ownerId, role: .owner)  // 👈 HIER .owner statt .admin
         ]
         
         var unknownEmails: [String] = []
@@ -121,11 +169,13 @@ struct SupabaseGroupRepository: GroupRepository {
             
             for invitedUser in cleanedUsers {
                 if let uid = byEmail[invitedUser.email] {
-                    memberRequests.append(MemberRequest(
-                        group_id: groupId,
-                        user_id: uid,
-                        role: invitedUser.role
-                    ))
+                    if uid != ownerId {
+                        memberRequests.append(MemberRequest(
+                            group_id: groupId,
+                            user_id: uid,
+                            role: invitedUser.role  // 👈 Eingeladene bekommen ihre gewählte Rolle
+                        ))
+                    }
                 } else {
                     unknownEmails.append(invitedUser.email)
                 }
@@ -146,6 +196,7 @@ struct SupabaseGroupRepository: GroupRepository {
         }
         
         print("✅ Gruppe '\(name)' erstellt mit \(memberRequests.count) Mitgliedern")
+        print("📋 Rollen: \(memberRequests.map { "\($0.user_id): \($0.role)" })")
     }
     
     // ✅ Abwärtskompatibilität - INTERNE Implementierung
@@ -187,6 +238,36 @@ struct SupabaseGroupRepository: GroupRepository {
             
         print("✅ Mitglied \(userId) aus Gruppe \(groupId) entfernt")
     }
+    
+    
+    // Im SupabaseGroupRepository
+    func leaveGroup(groupId: UUID) async throws {
+        let currentUserId = try await auth.currentUserId()
+        
+        try await db
+            .from(membersTable)
+            .delete()
+            .eq("group_id", value: groupId.uuidString)
+            .eq("user_id", value: currentUserId.uuidString)
+            .execute()
+            
+        print("✅ User \(currentUserId) hat Gruppe \(groupId) verlassen")
+    }
+
+    func transferOwnership(groupId: UUID, newOwnerId: UUID) async throws {
+        struct UpdateOwnerRequest: Encodable {
+            let owner_id: UUID
+        }
+        
+        try await db
+            .from(groupsTable)
+            .update(UpdateOwnerRequest(owner_id: newOwnerId))
+            .eq("id", value: groupId.uuidString)
+            .execute()
+        
+        print("✅ Gruppen-Besitzer geändert zu: \(newOwnerId)")
+    }
+    
     
     func rename(groupId: UUID, to newName: String) async throws {
         let _ = try await auth.currentUserId()
@@ -230,7 +311,12 @@ struct SupabaseGroupRepository: GroupRepository {
             .value
         
         guard let invitedUser = users.first else {
-            throw GroupError.userNotFound
+            // 👈 BESSERE FEHLERMELDUNG
+            throw NSError(
+                domain: "GroupError",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Benutzer mit E-Mail '\(email)' wurde nicht gefunden."]
+            )
         }
         
         // 2) Prüfen ob User bereits Mitglied ist
@@ -243,7 +329,11 @@ struct SupabaseGroupRepository: GroupRepository {
             .value
         
         guard existingMembers.isEmpty else {
-            throw NSError(domain: "GroupError", code: 409, userInfo: [NSLocalizedDescriptionKey: "Benutzer ist bereits Gruppenmitglied"])
+            throw NSError(
+                domain: "GroupError",
+                code: 409,
+                userInfo: [NSLocalizedDescriptionKey: "Benutzer '\(invitedUser.display_name)' ist bereits Gruppenmitglied"]
+            )
         }
         
         // 3) Mitglied hinzufügen
@@ -266,4 +356,5 @@ struct SupabaseGroupRepository: GroupRepository {
         
         print("✅ Benutzer \(email) zu Gruppe \(groupId) eingeladen mit Rolle: \(role.rawValue)")
     }
+    
 }

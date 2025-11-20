@@ -136,10 +136,12 @@ enum role: String, Codable, CaseIterable {
     }
 }
 
-// MARK: - Error Enum
+
+// In GroupError.swift
 enum GroupError: Error {
     case unknownAppleIds([String])
     case emptyName
     case notGroupOwner
     case userNotFound
+    case cannotLeaveAsOwnerWithoutSuccessor // 👈 NEU
 }
