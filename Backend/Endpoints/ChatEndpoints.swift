@@ -109,7 +109,7 @@ struct ChatEndpoints {
         await userCache.insertFrom(messages: msgs)
         return msgs
     }
-
+    
     // MARK: - Send Text
     static func sendMessage(groupID: UUID, content: String) async throws -> Message {
         let userId = try await auth.currentUserId()
@@ -134,10 +134,10 @@ struct ChatEndpoints {
     }
 
     // MARK: - Send Voice Message (TYPSICHER)
-    static func sendVoiceMessage(groupID: UUID, voiceUrl: String, duration: Int) async throws -> Message {
+    static func sendVoiceMessage(groupID: UUID, groupName: String, voiceUrl: String, duration: Int) async throws -> Message {
         let userId = try await auth.currentUserId()
 
-        //  STRUCT STATT DICTIONARY
+        // STRUCT STATT DICTIONARY
         struct VoicePayload: Encodable {
             let group_id: UUID
             let content: String
@@ -166,6 +166,74 @@ struct ChatEndpoints {
 
         if let user = raw.user { await userCache.set(user) }
         return raw
+    }
+
+    // MARK: - Storage Cleanup für Voice Messages
+    private static func deleteVoiceFromStorage(voiceUrl: String) async {
+        do {
+            // ✅ KORREKTER PFAD: Aus der URL den richtigen Pfad extrahieren
+            guard let url = URL(string: voiceUrl) else {
+                print("⚠️ Invalid voice URL: \(voiceUrl)")
+                return
+            }
+            
+            // Der Pfad ist alles nach "/object/public/voice-messages/"
+            let fullPath = url.path
+            print("🔍 Full path from URL: \(fullPath)")
+            
+            // Extrahiere den Pfad nach "voice-messages/"
+            if let range = fullPath.range(of: "/voice-messages/") {
+                let relativePath = String(fullPath[range.upperBound...])
+                print("🔍 Relative path to delete: \(relativePath)")
+                
+                try await supabase.storage
+                    .from("voice-messages")
+                    .remove(paths: [relativePath])
+                
+                print("🗑️ Voice message deleted from storage: \(relativePath)")
+            } else {
+                print("⚠️ Could not extract path from voice URL: \(voiceUrl)")
+            }
+            
+        } catch {
+            print("⚠️ Could not delete voice from storage: \(error)")
+            if let supabaseError = error as? StorageError {
+                print("🔍 Storage Error: \(supabaseError)")
+            }
+        }
+    }
+
+    // MARK: - Delete Message (mit Storage Cleanup) - ✅ KORRIGIERT
+    static func deleteMessage(_ message: Message) async throws {
+        // Zuerst aus Datenbank löschen
+        try await db
+            .from(messagesTable)
+            .delete()
+            .eq("id", value: message.id)
+            .execute()
+        
+        // Dann aus Storage löschen (falls Voice Message)
+        if message.isVoiceMessage, let voiceUrl = message.voice_url {
+            await deleteVoiceFromStorage(voiceUrl: voiceUrl)
+        }
+    }
+    
+    // MARK: - Edit Message
+    static func editMessage(_ messageId: UUID, newContent: String) async throws -> Message {
+        let payload = ["content": newContent]
+        
+        let updated: Message = try await db
+            .from(messagesTable)
+            .update(payload)
+            .eq("id", value: messageId)
+            .select(messageSelect)
+            .single()
+            .execute()
+            .value
+        
+        // User Cache aktualisieren
+        if let user = updated.user { await userCache.set(user) }
+        return updated
     }
 
     // MARK: - Fetch User (mit Cache)
@@ -252,14 +320,14 @@ struct ChatEndpoints {
             }
 
         } catch {
-                print("❌ Real-Time decode error: \(error)")
-                // ✅ DEBUG INFO HINZUFÜGEN
-                print("🔍 Raw data: \(action.record)")
-                if let decodingError = error as? DecodingError {
-                    print("🔍 Decoding details: \(decodingError)")
-                }
+            print("❌ Real-Time decode error: \(error)")
+            // ✅ DEBUG INFO HINZUFÜGEN
+            print("🔍 Raw data: \(action.record)")
+            if let decodingError = error as? DecodingError {
+                print("🔍 Decoding details: \(decodingError)")
             }
         }
+    }
     
     static func cleanupAllSubscriptions() {
         for (id, _) in subscriptions {

@@ -38,7 +38,6 @@ final class AudioRecorderService: NSObject, ObservableObject {
     deinit {
         isActive = false
         
-        // ✅ KORREKT: Direkte Cleanup ohne Actor-Isolation
         recordingTimer?.invalidate()
         playbackTimer?.invalidate()
         

@@ -24,6 +24,12 @@ struct GroupChatView: View {
     @State private var showSendConfirmation = false
     @State private var pendingVoiceMessage: (url: URL, duration: TimeInterval)?
 
+    // ✅ NEUE STATES FÜR CONTEXT MENU
+    @State private var selectedMessages: Set<UUID> = []
+    @State private var isSelectingMessages = false
+    @State private var editingMessage: Message?
+    @State private var editText: String = ""
+
     var body: some View {
         VStack(spacing: 0) {
 
@@ -36,9 +42,55 @@ struct GroupChatView: View {
                                 message: message,
                                 colorManager: colorManager,
                                 isCurrentUser: isCurrentUser(message),
-                                audioService: audioService
+                                audioService: audioService,
+                                isSelected: isMessageSelected(message)
                             )
                             .id(message.id)
+                            // ✅ TAP GESTURE FÜR SELECTION
+                            .onTapGesture {
+                                if isSelectingMessages {
+                                    toggleMessageSelection(message)
+                                }
+                            }
+                            .contextMenu {
+                                // MARK: - Context Menu für Nachrichten
+                                if isCurrentUser(message) {
+                                    // Löschen Button (immer verfügbar für eigenen User)
+                                    Button(role: .destructive) {
+                                        deleteMessage(message)
+                                    } label: {
+                                        Label("Löschen", systemImage: "trash")
+                                    }
+                                    
+                                    // Markieren Button
+                                    Button {
+                                        toggleMessageSelection(message)
+                                    } label: {
+                                        Label(
+                                            isMessageSelected(message) ? "Nicht markieren" : "Markieren",
+                                            systemImage: isMessageSelected(message) ? "checkmark.circle.fill" : "checkmark.circle"
+                                        )
+                                    }
+                                    
+                                    // Bearbeiten Button (nur für Textnachrichten)
+                                    if message.isTextMessage {
+                                        Button {
+                                            startEditingMessage(message)
+                                        } label: {
+                                            Label("Bearbeiten", systemImage: "pencil")
+                                        }
+                                    }
+                                } else {
+                                    // Nur Markieren für fremde Nachrichten
+                                    Button {
+                                        toggleMessageSelection(message)
+                                    } label: {
+                                        Label("Markieren", systemImage: "checkmark.circle")
+                                    }
+                                }
+                            }
+                            // ✅ KEIN .disabled MEHR - alles wird über Tap Gesture geregelt
+                            .contentShape(Rectangle())
                         }
                     }
                     .padding(.horizontal, 8)
@@ -55,7 +107,40 @@ struct GroupChatView: View {
             }
             .background(Color(.systemGroupedBackground))
 
-            // MARK: - Voice Recording Status (WIE SPEECH-TO-TEXT)
+            // MARK: - Multi-Select Toolbar (✅ AUSSERHALB DES SCROLLVIEW)
+            if isSelectingMessages {
+                VStack(spacing: 0) {
+                    Divider()
+                    HStack {
+                        Text("\(selectedMessages.count) ausgewählt")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Button(role: .destructive) {
+                            deleteSelectedMessages()
+                        } label: {
+                            Label("Löschen", systemImage: "trash")
+                                .font(.subheadline)
+                        }
+                        
+                        Button("Fertig") {
+                            selectedMessages.removeAll()
+                            isSelectingMessages = false
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color(.systemBackground))
+                }
+            }
+
+            // MARK: - Voice Recording Status
             if audioService.isRecording {
                 VoiceRecordingStatusView(
                     elapsedTime: audioService.recordingTime,
@@ -209,6 +294,114 @@ struct GroupChatView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .sheet(item: $editingMessage) { message in
+            NavigationView {
+                VStack {
+                    TextField("Nachricht bearbeiten...", text: $editText, axis: .vertical)
+                        .lineLimit(1...4)
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(10)
+                        .padding()
+                    
+                    Spacer()
+                }
+                .navigationTitle("Nachricht bearbeiten")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Abbrechen") {
+                            editingMessage = nil
+                            editText = ""
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Speichern") {
+                            saveEditedMessage()
+                        }
+                        .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    // MARK: - Context Menu Actions
+
+    private func deleteMessage(_ message: Message) {
+        Task {
+            do {
+                try await ChatEndpoints.deleteMessage(message)
+                await MainActor.run {
+                    messages.removeAll { $0.id == message.id }
+                    selectedMessages.remove(message.id)
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Nachricht konnte nicht gelöscht werden: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func toggleMessageSelection(_ message: Message) {
+        if selectedMessages.contains(message.id) {
+            selectedMessages.remove(message.id)
+        } else {
+            selectedMessages.insert(message.id)
+        }
+        isSelectingMessages = !selectedMessages.isEmpty
+    }
+
+    private func isMessageSelected(_ message: Message) -> Bool {
+        selectedMessages.contains(message.id)
+    }
+
+    private func startEditingMessage(_ message: Message) {
+        editingMessage = message
+        editText = message.content
+    }
+
+    private func saveEditedMessage() {
+        guard let editingMessage = editingMessage else { return }
+        
+        Task {
+            do {
+                let updatedMessage = try await ChatEndpoints.editMessage(
+                    editingMessage.id,
+                    newContent: editText.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                
+                await MainActor.run {
+                    if let index = messages.firstIndex(where: { $0.id == editingMessage.id }) {
+                        messages[index] = updatedMessage
+                    }
+                    self.editingMessage = nil
+                    self.editText = ""
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Nachricht konnte nicht bearbeitet werden: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func deleteSelectedMessages() {
+        let toDelete = messages.filter { selectedMessages.contains($0.id) }
+        
+        Task {
+            for message in toDelete {
+                try? await ChatEndpoints.deleteMessage(message)
+            }
+            
+            await MainActor.run {
+                messages.removeAll { selectedMessages.contains($0.id) }
+                selectedMessages.removeAll()
+                isSelectingMessages = false
+            }
+        }
     }
 
     // MARK: - Voice Recording Handling (TAP SYSTEM)
@@ -332,14 +525,20 @@ struct GroupChatView: View {
     private func sendVoiceMessage(from localURL: URL, duration: TimeInterval) async {
         do {
             let uploader = AudioUploadService()
+            
+            // ✅ MESSAGE ID VORHER GENERIEREN
+            let messageId = UUID()
+            
             let urlString = try await uploader.uploadVoiceMessage(
                 audioURL: localURL,
                 groupId: group.id,
-                userId: currentUserId ?? UUID()
+                groupName: group.name, // ✅ GROUP NAME WIEDER ÜBERGEBEN
+                messageId: messageId    // ✅ MESSAGE ID ÜBERGEBEN
             )
 
             let message = try await ChatEndpoints.sendVoiceMessage(
                 groupID: group.id,
+                groupName: group.name,  // ✅ GROUP NAME ÜBERGEBEN
                 voiceUrl: urlString,
                 duration: Int(duration)
             )
@@ -437,6 +636,7 @@ struct VoiceRecordingStatusView: View {
         .padding(.bottom, 8)
     }
 }
+
 // MARK: - Send Confirmation Status View
 
 struct SendConfirmationStatusView: View {
@@ -469,20 +669,20 @@ struct SendConfirmationStatusView: View {
                 
                 HStack(spacing: 8) {
                     Button(action: onCancel) {
-                        Text("🗑️") // 🗑️ Mülleimer Emoji
-                            .font(.title3) // GLEICHE GRÖSSE
+                        Text("🗑️")
+                            .font(.title3)
                             .padding(.horizontal, 11.1)
                             .padding(.vertical, 8)
-                            .background(Color.red.opacity(0.9)) // WENIGER TRANSPARENT
+                            .background(Color.red.opacity(0.9))
                             .cornerRadius(10)
                     }
                     
                     Button(action: onSend) {
-                        Text("↑") // ↑ Pfeil nach oben
-                            .font(.title3) // GLEICHE GRÖSSE
+                        Text("↑")
+                            .font(.title3)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(Color.green.opacity(0.9)) // WENIGER TRANSPARENT
+                            .background(Color.green.opacity(0.9))
                             .cornerRadius(10)
                     }
                 }
@@ -498,26 +698,41 @@ struct SendConfirmationStatusView: View {
 }
 
 // MARK: - ChatBubbleView & VoiceMessageBubble
-
 private struct ChatBubbleView: View {
     let message: Message
     let colorManager: ColorManager
     let isCurrentUser: Bool
     @ObservedObject var audioService: AudioRecorderService
-
+    let isSelected: Bool
+    
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
-                // Avatar
-                Circle()
-                    .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Text(initials(for: message.sender.display_name))
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                    )
+                // Avatar mit Selection Overlay
+                ZStack {
+                    Circle()
+                        .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
+                        .frame(width: 36, height: 36)
+                        .overlay(
+                            Text(initials(for: message.sender.display_name))
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                        )
+                    
+                    // ✅ BLAUER HAKEN statt grün
+                    if isSelected {
+                        Circle()
+                            .fill(Color.blue) // ✅ BLAU statt grün
+                            .frame(width: 16, height: 16)
+                            .overlay(
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                            )
+                            .offset(x: 12, y: 12)
+                    }
+                }
 
                 messageContent
                 Spacer()
@@ -525,20 +740,37 @@ private struct ChatBubbleView: View {
                 Spacer()
                 messageContent
 
-                Circle()
-                    .fill(Color.blue)
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Text("DU")
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                    )
+                // Avatar mit Selection Overlay
+                ZStack {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 36, height: 36)
+                        .overlay(
+                            Text("DU")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                        )
+                    
+                    // ✅ BLAUER HAKEN statt grün
+                    if isSelected {
+                        Circle()
+                            .fill(Color.blue) // ✅ BLAU statt grün
+                            .frame(width: 16, height: 16)
+                            .overlay(
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                            )
+                            .offset(x: 12, y: 12)
+                    }
+                }
             }
         }
         .padding(.horizontal, 8)
+        .cornerRadius(8)
     }
-
+    
     private var messageContent: some View {
         VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 4) {
             if !isCurrentUser {
@@ -629,13 +861,11 @@ struct VoiceMessageBubble: View {
                 .stroke(Color.purple.opacity(0.3), lineWidth: 1)
         )
         .onChange(of: audioService.isPlaying) { oldValue, newValue in
-            // ✅ OPTIMIERT: State Synchronisation
             if !newValue && isPlayingLocal {
                 isPlayingLocal = false
             }
         }
         .onChange(of: audioService.errorMessage) { oldValue, newValue in
-            // ✅ ERROR HANDLING: Bei Fehler Playback stoppen
             if newValue != nil && isPlayingLocal {
                 isPlayingLocal = false
             }
@@ -658,7 +888,6 @@ struct VoiceMessageBubble: View {
             isPlayingLocal = true
             Task {
                 await audioService.playAudioFromURL(url)
-                // Fallback: falls Playback nicht startet
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     if !audioService.isPlaying && isPlayingLocal {
                         isPlayingLocal = false
@@ -672,11 +901,12 @@ struct VoiceMessageBubble: View {
 // MARK: - AudioUploadService
 
 struct AudioUploadService {
-    func uploadVoiceMessage(audioURL: URL, groupId: UUID, userId: UUID) async throws -> String {
+    func uploadVoiceMessage(audioURL: URL, groupId: UUID, groupName: String, messageId: UUID) async throws -> String {
         let audioData = try Data(contentsOf: audioURL)
 
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let path = "\(userId.uuidString)/\(groupId.uuidString)/voice-\(timestamp).m4a"
+        // ✅ ZURÜCK ZUR GRUPPEN-STRUKTUR: "gruppenname/message-id.m4a"
+        let safeGroupName = groupName.replacingOccurrences(of: "/", with: "-")
+        let path = "\(safeGroupName)/\(messageId).m4a"
 
         _ = try await supabase.storage
             .from("voice-messages")
