@@ -1,228 +1,269 @@
+//
+//  ChatEndpoints.swift
+//
+
 import Foundation
 import Supabase
 
 struct ChatEndpoints {
-    
+
     private static let db = supabase
     private static let messagesTable = "message"
     private static let auth: AuthRepository = SupabaseAuthRepository()
-    
-    // ✅ Real-Time Subscriptions
+
+    // MARK: - Gemeinsamer SELECT Block
+    private static let messageSelect = """
+        id,
+        group_id,
+        content,
+        sent_by,
+        sent_at,
+        message_type,
+        voice_duration,
+        voice_url,
+        user:user!sent_by(
+            id,
+            display_name,
+            email
+        )
+    """
+
+    // MARK: - Realtime Storage
     private static var subscriptions: [UUID: RealtimeChannelV2] = [:]
-    
-    // ✅ Thread-sicherer Cache mit Actor
+
+    // MARK: - User Cache Actor
     private actor UserCache {
-        private var cache: [UUID: AppUser] = [:]
-        
-        func get(userId: UUID) -> AppUser? {
-            return cache[userId]
-        }
-        
-        func set(user: AppUser) {
-            cache[user.id] = user
-        }
-        
-        func setMultiple(from messages: [Message]) {
-            for message in messages {
-                if let user = message.user {
-                    cache[user.id] = user
-                }
+        private var storage: [UUID: AppUser] = [:]
+
+        func get(_ id: UUID) -> AppUser? { storage[id] }
+
+        func set(_ user: AppUser) { storage[user.id] = user }
+
+        func insertFrom(messages: [Message]) {
+            for msg in messages {
+                if let u = msg.user { storage[u.id] = u }
             }
         }
     }
-    
     private static let userCache = UserCache()
-    
-    // MARK: - Message Operations
-    
+
+    // MARK: - Date Decoder (einmalig)
+    private static let dateDecoder: (Decoder) throws -> Date = { decoder in
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: raw) { return d }
+
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: raw) { return d }
+
+        let df = DateFormatter()
+        df.calendar = Calendar(identifier: .iso8601)
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+
+        df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ"
+        if let d = df.date(from: raw) { return d }
+
+        df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+        if let d = df.date(from: raw) { return d }
+
+        df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        if let d = df.date(from: raw) { return d }
+
+        if let ts = TimeInterval(raw) {
+            return Date(timeIntervalSince1970: ts)
+        }
+
+        print("⚠️ Konnte Datum nicht parsen: \(raw)")
+        return Date()
+    }
+
+    // MARK: - Hochwertige Builder Funktion
+    private static func buildMessage(from raw: Message, with user: AppUser?) -> Message {
+        Message(
+            id: raw.id,
+            group_id: raw.group_id,
+            content: raw.content,
+            sent_by: raw.sent_by,
+            sent_at: raw.sent_at,
+            user: user,
+            message_type: raw.message_type,
+            voice_duration: raw.voice_duration,
+            voice_url: raw.voice_url
+        )
+    }
+
+    // MARK: - Fetch Messages
     static func fetchMessages(for groupID: UUID) async throws -> [Message] {
-        let messages: [Message] = try await db
+        let msgs: [Message] = try await db
             .from(messagesTable)
-            .select("""
-                id,
-                group_id,
-                content,
-                sent_by,
-                sent_at,
-                user:user!sent_by(
-                    id,
-                    display_name,
-                    email
-                )
-            """)
+            .select(messageSelect)
             .eq("group_id", value: groupID)
             .order("sent_at", ascending: true)
             .execute()
             .value
-        
-        // ✅ Cache mit allen Usern füllen
-        await userCache.setMultiple(from: messages)
-        
-        return messages
+
+        await userCache.insertFrom(messages: msgs)
+        return msgs
     }
-    
+
+    // MARK: - Send Text
     static func sendMessage(groupID: UUID, content: String) async throws -> Message {
         let userId = try await auth.currentUserId()
-        
-        let payload = CreateMessagePayload(
-            group_id: groupID,
-            content: content,
-            sent_by: userId
-        )
-        
-        let message: Message = try await db
+
+        let payload = [
+            "group_id": groupID.uuidString,
+            "content": content,
+            "sent_by": userId.uuidString,
+            "message_type": "text"
+        ]
+
+        let raw: Message = try await db
             .from(messagesTable)
             .insert(payload)
-            .select("""
-                id,
-                group_id,
-                content,
-                sent_by,
-                sent_at,
-                user:user!sent_by(
-                    id,
-                    display_name,
-                    email
-                )
-            """)
+            .select(messageSelect)
             .single()
             .execute()
             .value
-        
-        // ✅ Sender zum Cache hinzufügen
-        if let user = message.user {
-            await userCache.set(user: user)
+
+        if let user = raw.user { await userCache.set(user) }
+        return raw
+    }
+
+    // MARK: - Send Voice Message (TYPSICHER)
+    static func sendVoiceMessage(groupID: UUID, voiceUrl: String, duration: Int) async throws -> Message {
+        let userId = try await auth.currentUserId()
+
+        //  STRUCT STATT DICTIONARY
+        struct VoicePayload: Encodable {
+            let group_id: UUID
+            let content: String
+            let sent_by: UUID
+            let message_type: String
+            let voice_duration: Int
+            let voice_url: String
         }
         
-        return message
+        let payload = VoicePayload(
+            group_id: groupID,
+            content: "🎤 Sprachnachricht (\(duration)s)",
+            sent_by: userId,
+            message_type: "voice",
+            voice_duration: duration,
+            voice_url: voiceUrl
+        )
+
+        let raw: Message = try await db
+            .from(messagesTable)
+            .insert(payload)
+            .select(messageSelect)
+            .single()
+            .execute()
+            .value
+
+        if let user = raw.user { await userCache.set(user) }
+        return raw
     }
-    
-    // MARK: - Real-Time Implementation
-    
+
+    // MARK: - Fetch User (mit Cache)
+    static func fetchUser(_ id: UUID) async throws -> AppUser {
+        if let cached = await userCache.get(id) { return cached }
+
+        let user: AppUser = try await db
+            .from("user")
+            .select()
+            .eq("id", value: id)
+            .single()
+            .execute()
+            .value
+
+        await userCache.set(user)
+        return user
+    }
+
+    // MARK: - Real-Time
     static func startRealtimeSubscription(
-        for groupID: UUID,
-        onNewMessage: @escaping (Message) -> Void
+        groupID: UUID,
+        onMessage: @escaping (Message) -> Void
     ) async throws {
-        
+
         stopRealtimeSubscription(for: groupID)
-        
+
         let channel = db.realtimeV2.channel("group_chat_\(groupID)")
-        
+
         let changes = channel.postgresChange(
             InsertAction.self,
             schema: "public",
-            table: "message",
+            table: messagesTable,
             filter: .eq("group_id", value: groupID)
         )
-        
+
         Task {
             for await action in changes {
-                await handleNewMessage(action, groupID: groupID, onNewMessage: onNewMessage)
+                await handleRealtime(action, groupID: groupID, onMessage: onMessage)
             }
         }
-        
+
         try await channel.subscribe()
         subscriptions[groupID] = channel
-        
-        print("✅ Real-Time Subscription gestartet für Gruppe: \(groupID)")
     }
-    
+
     static func stopRealtimeSubscription(for groupID: UUID) {
         Task {
             if let channel = subscriptions[groupID] {
                 try? await channel.unsubscribe()
-                subscriptions.removeValue(forKey: groupID)
-                print("🔕 Real-Time Subscription gestoppt für Gruppe: \(groupID)")
+                subscriptions[groupID] = nil
             }
         }
     }
-    
-    // ✅ WhatsApp-Style Real-Time Handling mit Cache
-    private static func handleNewMessage(
+
+    private static func handleRealtime(
         _ action: InsertAction,
         groupID: UUID,
-        onNewMessage: @escaping (Message) -> Void
+        onMessage: @escaping (Message) -> Void
     ) async {
         do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(action.record)
+
             let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            
-            let jsonData = try JSONEncoder().encode(action.record)
-            let rawMessage = try decoder.decode(Message.self, from: jsonData)
-            
-            guard rawMessage.group_id == groupID else { return }
-            
-            // ✅ SCHRITT 1: Prüfe Cache zuerst
-            if let cachedUser = await userCache.get(userId: rawMessage.sent_by) {
-                let messageWithUser = Message(
-                    id: rawMessage.id,
-                    group_id: rawMessage.group_id,
-                    content: rawMessage.content,
-                    sent_by: rawMessage.sent_by,
-                    sent_at: rawMessage.sent_at,
-                    user: cachedUser
-                )
-                
-                DispatchQueue.main.async {
-                    onNewMessage(messageWithUser)
-                }
-                print("📨 [CACHE] Nachricht von \(cachedUser.display_name): '\(rawMessage.content)'")
-                
+            decoder.dateDecodingStrategy = .custom(dateDecoder)
+
+            let raw = try decoder.decode(Message.self, from: data)
+
+            // falsche Gruppe ignorieren
+            guard raw.group_id == groupID else { return }
+
+            if let cached = await userCache.get(raw.sent_by) {
+                let msg = buildMessage(from: raw, with: cached)
+                DispatchQueue.main.async { onMessage(msg) }
             } else {
-                // ✅ SCHRITT 2: Fallback - Ohne User anzeigen
-                DispatchQueue.main.async {
-                    onNewMessage(rawMessage)
-                }
-                print("📨 [NO-CACHE] Nachricht von \(rawMessage.sent_by): '\(rawMessage.content)'")
-                
-                // ✅ SCHRITT 3: Im Hintergrund User laden und Cache füllen
+                DispatchQueue.main.async { onMessage(raw) }
+
                 Task {
-                    await loadAndCacheUser(for: rawMessage.sent_by)
+                    let user = try? await fetchUser(raw.sent_by)
+                    if let u = user {
+                        await userCache.set(u)
+                    }
                 }
             }
-            
+
         } catch {
-            print("❌ Fehler beim Verarbeiten der Real-Time Nachricht: \(error)")
+                print("❌ Real-Time decode error: \(error)")
+                // ✅ DEBUG INFO HINZUFÜGEN
+                print("🔍 Raw data: \(action.record)")
+                if let decodingError = error as? DecodingError {
+                    print("🔍 Decoding details: \(decodingError)")
+                }
+            }
         }
-    }
     
-    // MARK: - User Loading
-    
-    private static func loadAndCacheUser(for userId: UUID) async {
-        do {
-            let user: AppUser = try await db
-                .from("user")
-                .select()
-                .eq("id", value: userId)
-                .single()
-                .execute()
-                .value
-            
-            await userCache.set(user: user)
-            print("✅ User zu Cache hinzugefügt: \(user.display_name)")
-            
-        } catch {
-            print("❌ Fehler beim Laden des Users \(userId): \(error)")
+    static func cleanupAllSubscriptions() {
+        for (id, _) in subscriptions {
+            stopRealtimeSubscription(for: id)
         }
-    }
-    
-    // In ChatEndpoints.swift - NEUE FUNKTION
-    static func fetchUser(for userId: UUID) async throws -> AppUser {
-        let user: AppUser = try await db
-            .from("user")
-            .select()
-            .eq("id", value: userId)
-            .single()
-            .execute()
-            .value
-        
-        return user
-    }
-    
-    // MARK: - Payload Struct
-    private struct CreateMessagePayload: Encodable {
-        let group_id: UUID
-        let content: String
-        let sent_by: UUID
     }
 }
