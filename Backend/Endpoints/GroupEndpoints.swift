@@ -110,7 +110,56 @@ struct SupabaseGroupRepository: GroupRepository {
     func create(name: String, invitedUsers: [(email: String, role: role)]) async throws {
         let ownerId = try await auth.currentUserId()
 
-        // 1) Gruppe anlegen 
+        // 1) E-Mails säubern und PRÜFEN VOR der Gruppenerstellung
+        let cleanedUsers = invitedUsers
+            .map { (email: $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), role: $0.role) }
+            .filter { !$0.email.isEmpty }
+
+        print("🔍 Eingegangene E-Mails: \(cleanedUsers.map { $0.email })")
+
+        var unknownEmails: [String] = []
+
+        // 2) E-Mails → user_ids auflösen VOR der Gruppenerstellung
+        var validUserIds: [(UUID, role)] = []
+        
+        if !cleanedUsers.isEmpty {
+            let emails = cleanedUsers.map { $0.email }
+            print("🔍 Suche in DB nach: \(emails)")
+            
+            let userRows: [AppUser] = try await db
+                .from(usersTable)
+                .select("id,display_name,email")
+                .in("email", values: emails)
+                .execute()
+                .value
+
+            print("🔍 Gefundene User in DB: \(userRows.map { $0.email })")
+
+            let byEmail = Dictionary(uniqueKeysWithValues: userRows.map { ($0.email.lowercased(), $0.id) })
+            print("🔍 Email→ID Mapping: \(byEmail)")
+            
+            for invitedUser in cleanedUsers {
+                if let uid = byEmail[invitedUser.email] {
+                    print("✅ Gefunden: \(invitedUser.email) → \(uid)")
+                    if uid != ownerId {
+                        validUserIds.append((uid, invitedUser.role))
+                    }
+                } else {
+                    print("❌ Nicht gefunden: \(invitedUser.email)")
+                    unknownEmails.append(invitedUser.email)
+                }
+            }
+        }
+
+        print("🔍 Unbekannte E-Mails: \(unknownEmails)")
+
+        // 3) Unbekannte E-Mails als Fehler werfen VOR der Gruppenerstellung
+        if !unknownEmails.isEmpty {
+            print("🚨 Werfe GroupError.unknownAppleIds mit: \(unknownEmails)")
+            throw GroupError.unknownAppleIds(unknownEmails)
+        }
+
+        // 4) ERST JETZT Gruppe anlegen (wenn alle E-Mails gültig sind)
         struct CreateGroupRequest: Encodable {
             let name: String
             let owner_id: UUID
@@ -137,62 +186,32 @@ struct SupabaseGroupRepository: GroupRepository {
 
         let groupId = created.id
 
-        // 2) E-Mails säubern
-        let cleanedUsers = invitedUsers
-            .map { (email: $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), role: $0.role) }
-            .filter { !$0.email.isEmpty }
-
-        // 3) E-Mails → user_ids auflösen
+        // 5) Mitglieder hinzufügen
         struct MemberRequest: Encodable {
             let group_id: UUID
             let user_id: UUID
             let role: role
         }
         
-        // 👈 OWNER bekommt .owner Rolle
         var memberRequests: [MemberRequest] = [
-            MemberRequest(group_id: groupId, user_id: ownerId, role: .owner)  // 👈 HIER .owner statt .admin
+            MemberRequest(group_id: groupId, user_id: ownerId, role: .owner)
         ]
         
-        var unknownEmails: [String] = []
-
-        if !cleanedUsers.isEmpty {
-            let emails = cleanedUsers.map { $0.email }
-            let userRows: [AppUser] = try await db
-                .from(usersTable)
-                .select("id,display_name,email")
-                .in("email", values: emails)
-                .execute()
-                .value
-
-            let byEmail = Dictionary(uniqueKeysWithValues: userRows.map { ($0.email.lowercased(), $0.id) })
-            
-            for invitedUser in cleanedUsers {
-                if let uid = byEmail[invitedUser.email] {
-                    if uid != ownerId {
-                        memberRequests.append(MemberRequest(
-                            group_id: groupId,
-                            user_id: uid,
-                            role: invitedUser.role  // 👈 Eingeladene bekommen ihre gewählte Rolle
-                        ))
-                    }
-                } else {
-                    unknownEmails.append(invitedUser.email)
-                }
-            }
+        // Gültige User hinzufügen
+        for (userId, userRole) in validUserIds {
+            memberRequests.append(MemberRequest(
+                group_id: groupId,
+                user_id: userId,
+                role: userRole
+            ))
         }
 
-        // 4) Member-Bulk
+        // 6) Member-Bulk
         if !memberRequests.isEmpty {
             _ = try await db
                 .from(membersTable)
                 .upsert(memberRequests, onConflict: "group_id,user_id", returning: .minimal)
                 .execute()
-        }
-
-        // 5) Unbekannte E-Mails als Fehler werfen
-        if !unknownEmails.isEmpty {
-            throw GroupError.unknownAppleIds(unknownEmails)
         }
         
         print("✅ Gruppe '\(name)' erstellt mit \(memberRequests.count) Mitgliedern")
