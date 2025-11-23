@@ -7,7 +7,7 @@ struct AppUser: Codable {
     let email: String
 }
 
-// Backend/Models/AuthError.swift
+// Backend/Models/AuthError.swift 
 enum AuthError: Error {
     case userCreationFailed
     case userNotFound
@@ -40,20 +40,54 @@ struct Event: Identifiable, Codable {
     let created_at: Date
 }
 
-// In Backend/model.swift - Message Model anpassen 
+// Backend/Models/Message.swift
 struct Message: Identifiable, Codable {
     let id: UUID
     let group_id: UUID
-    let content: String  // ✅ content statt text
-    let sent_by: UUID    // ✅ sent_by statt sender_id
+    let content: String
+    let sent_by: UUID
     let sent_at: Date
-    let user: AppUser?   // Für Join mit user Tabelle
+    let user: AppUser?
+    
+    // 👈 NEUE FELDER FÜR SPRACHNACHRICHTEN
+    let message_type: String?  // "text" oder "voice"
+    let voice_duration: Int?   // Dauer in Sekunden
+    let voice_url: String?     // URL zur Audio-Datei
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case group_id
+        case content
+        case sent_by
+        case sent_at
+        case user
+        case message_type
+        case voice_duration
+        case voice_url
+    }
+    
+    // 👈 COMPUTED PROPERTIES FÜR BEQUEMLICHKEIT
+    var isVoiceMessage: Bool {
+        message_type == "voice"
+    }
+    
+    var isTextMessage: Bool {
+        message_type == "text" || message_type == nil
+    }
     
     var sender: AppUser {
         user ?? AppUser(id: sent_by, display_name: "Unbekannt", email: "")
     }
+    
+    // 👈 Formatierte Dauer für Voice Messages
+    var formattedDuration: String? {
+        guard let duration = voice_duration else { return nil }
+        let minutes = duration / 60
+        let seconds = duration % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 }
-//hallo
+
 struct UserProfile: Identifiable, Hashable {
     let id: UUID
     var displayName: String
@@ -102,10 +136,12 @@ enum role: String, Codable, CaseIterable {
     }
 }
 
-// MARK: - Error Enum
+
+// In GroupError.swift
 enum GroupError: Error {
     case unknownAppleIds([String])
     case emptyName
     case notGroupOwner
     case userNotFound
+    case cannotLeaveAsOwnerWithoutSuccessor // 👈 NEU
 }

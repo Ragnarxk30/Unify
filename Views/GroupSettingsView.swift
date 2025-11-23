@@ -20,8 +20,9 @@ struct GroupSettingsView: View {
     @State private var memberToRemove: GroupMember?
     @State private var showRemoveMemberConfirm = false
     
-    // ✅ NEU: Aktuelle User ID speichern
     @State private var currentUserId: UUID?
+    @State private var showLeaveConfirm = false
+    @State private var showOwnerTransferSheet = false
 
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
@@ -39,9 +40,18 @@ struct GroupSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Allgemein") {
-                    TextField("Gruppenname", text: $name)
-                        .disabled(isSaving)
+                Section("Gruppenname") {
+                    if isOwner || isAdmin {
+                        // Owner/Admin: Können bearbeiten
+                        TextField("Gruppenname", text: $name)
+                            .disabled(isSaving)
+                    } else {
+                        // Normale User: Nur Anzeige
+                        HStack {
+                            Text(group.name)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 Section("Mitglieder") {
@@ -78,7 +88,6 @@ struct GroupSettingsView: View {
                                 
                                 Spacer()
                                 
-                                // ✅ Owner ODER Admin kann Mitglieder entfernen (außer sich selbst und Owner)
                                 if (isOwner || isAdmin) && member.user_id != group.owner_id && member.user_id != currentUserId {
                                     Button(role: .destructive) {
                                         memberToRemove = member
@@ -94,7 +103,6 @@ struct GroupSettingsView: View {
                         }
                     }
                     
-                    // ✅ Owner ODER Admin kann Mitglieder hinzufügen
                     if isOwner || isAdmin {
                         Button {
                             showAddMember = true
@@ -104,7 +112,29 @@ struct GroupSettingsView: View {
                     }
                 }
 
-                // ✅ NUR Owner kann Gruppe löschen
+                // 👈 SECTION: Gruppe verlassen
+                Section {
+                    Button(role: .destructive) {
+                        if isOwner {
+                            showOwnerTransferSheet = true
+                        } else {
+                            showLeaveConfirm = true
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                            Text(isOwner ? "Gruppe verlassen & Besitzer transferieren" : "Gruppe verlassen")
+                        }
+                    }
+                    .disabled(isDeleting)
+                } footer: {
+                    if isOwner {
+                        Text("Als Besitzer musst du einen neuen Besitzer auswählen, bevor du die Gruppe verlassen kannst.")
+                    } else {
+                        Text("Du kannst diese Gruppe jederzeit verlassen.")
+                    }
+                }
+
                 if isOwner {
                     Section {
                         Button(role: .destructive) {
@@ -133,9 +163,12 @@ struct GroupSettingsView: View {
                     Button("Abbrechen") { dismiss() }
                         .disabled(isSaving || isDeleting)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Speichern") { Task { await save() } }
-                        .disabled(isSaving || nameTrimmed.isEmpty || nameTrimmed == group.name)
+                
+                if isOwner || isAdmin {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Speichern") { Task { await save() } }
+                            .disabled(isSaving || nameTrimmed.isEmpty || nameTrimmed == group.name)
+                    }
                 }
             }
             .confirmationDialog(
@@ -168,12 +201,33 @@ struct GroupSettingsView: View {
                     Text("Möchtest du \(member.memberUser.display_name) wirklich aus der Gruppe entfernen?")
                 }
             }
+            .confirmationDialog(
+                "Gruppe wirklich verlassen?",
+                isPresented: $showLeaveConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Gruppe verlassen", role: .destructive) {
+                    Task { await leaveGroup() }
+                }
+                Button("Abbrechen", role: .cancel) { }
+            } message: {
+                Text("Du wirst aus der Gruppe entfernt und kannst nur durch Einladung wieder beitreten.")
+            }
             .sheet(isPresented: $showAddMember) {
                 AddMemberView(groupId: group.id) { newMember in
                     Task {
                         await loadMembers()
                     }
                 }
+            }
+            .sheet(isPresented: $showOwnerTransferSheet) {
+                TransferOwnershipView(
+                    group: group,
+                    members: members,
+                    onOwnershipTransferred: {
+                        dismiss()
+                    }
+                )
             }
             .onAppear {
                 Task {
@@ -189,21 +243,18 @@ struct GroupSettingsView: View {
         errorMessage = message
     }
 
-    // ✅ KORREKTUR: currentUserId wird hier gesetzt
     private func resolveUserRole() async {
         do {
             let uid = try await authRepo.currentUserId()
             
-            // Owner-Status prüfen
             let isUserOwner = (uid == group.owner_id)
             
-            // Admin-Status prüfen - lade Gruppenmitglieder um Rolle zu checken
             let groupMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
             let currentUserMember = groupMembers.first { $0.user_id == uid }
             let isUserAdmin = currentUserMember?.role == .admin
             
             await MainActor.run {
-                currentUserId = uid // ✅ Hier setzen
+                currentUserId = uid
                 isOwner = isUserOwner
                 isAdmin = isUserAdmin
                 print("✅ User Rolle: Owner=\(isOwner), Admin=\(isAdmin), UserID=\(uid)")
@@ -217,7 +268,6 @@ struct GroupSettingsView: View {
         }
     }
     
-    // MARK: - Mitglieder laden
     private func loadMembers() async {
         await MainActor.run {
             isLoadingMembers = true
@@ -230,17 +280,21 @@ struct GroupSettingsView: View {
             await MainActor.run {
                 members = fetchedMembers
                 isLoadingMembers = false
-                print("✅ \(members.count) Mitglieder geladen")
+                print("🎯 IN VIEW: \(members.count) Mitglieder")
+                for member in members {
+                    print("   👤 \(member.memberUser.display_name) - \(member.role.displayName) - UserID: \(member.user_id)")
+                }
+                print("🎯 AKTUELLE GROUP OWNER ID: \(group.owner_id)")
             }
         } catch {
             await MainActor.run {
                 isLoadingMembers = false
                 setError("Mitglieder konnten nicht geladen werden: \(error.localizedDescription)")
+                print("❌ FEHLER beim Laden: \(error.localizedDescription)")
             }
         }
     }
 
-    // MARK: - Mitglied entfernen
     private func removeMember(_ member: GroupMember) {
         Task {
             do {
@@ -298,9 +352,31 @@ struct GroupSettingsView: View {
             }
         }
     }
+    
+    // 👈 FUNKTION: Gruppe verlassen (für Admin/normale User)
+    private func leaveGroup() async {
+        await MainActor.run {
+            errorMessage = nil
+            isDeleting = true
+        }
+        
+        do {
+            try await groupRepo.leaveGroup(groupId: group.id)
+            
+            await MainActor.run {
+                isDeleting = false
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                isDeleting = false
+                setError("Gruppe verlassen fehlgeschlagen: \(error.localizedDescription)")
+            }
+        }
+    }
 }
 
-// ✅ Extension für Initials
+// ✅ Extension für Initials 
 extension AppUser {
     var initials: String {
         let comps = display_name.split(separator: " ")
@@ -310,7 +386,126 @@ extension AppUser {
     }
 }
 
-// ✅ AddMemberView (bleibt gleich)
+// ✅ TransferOwnershipView
+struct TransferOwnershipView: View {
+    @Environment(\.dismiss) private var dismiss
+    let group: AppGroup
+    let members: [GroupMember]
+    let onOwnershipTransferred: () -> Void
+    
+    @State private var selectedNewOwner: UUID?
+    @State private var isTransferring = false
+    @State private var errorMessage: String?
+    
+    private let groupRepo = SupabaseGroupRepository()
+    
+    // Verfügbare Mitglieder (ohne aktuellen Owner)
+    var availableMembers: [GroupMember] {
+        members.filter { $0.user_id != group.owner_id }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if availableMembers.isEmpty {
+                        Text("Keine anderen Mitglieder verfügbar")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(availableMembers) { member in
+                            HStack {
+                                Circle()
+                                    .fill(Color.blue.opacity(0.2))
+                                    .frame(width: 36, height: 36)
+                                    .overlay(
+                                        Text(member.memberUser.initials)
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.blue)
+                                    )
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(member.memberUser.display_name)
+                                        .font(.body)
+                                    Text(member.role.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                if selectedNewOwner == member.user_id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedNewOwner = member.user_id
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Neuen Besitzer auswählen")
+                } footer: {
+                    Text("Wähle ein Mitglied aus, das die Gruppenverwaltung übernehmen soll.")
+                }
+                
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Besitzer transferieren")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                        .disabled(isTransferring)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Transferieren") {
+                        Task { await transferOwnership() }
+                    }
+                    .disabled(selectedNewOwner == nil || isTransferring)
+                }
+            }
+        }
+    }
+    
+    private func transferOwnership() async {
+        guard let newOwnerId = selectedNewOwner else { return }
+        
+        await MainActor.run {
+            errorMessage = nil
+            isTransferring = true
+        }
+        
+        do {
+            // 1. Besitzer transferieren
+            try await groupRepo.transferOwnership(groupId: group.id, newOwnerId: newOwnerId)
+            
+            // 2. Dann sich selbst aus der Gruppe entfernen
+            try await groupRepo.leaveGroup(groupId: group.id)
+            
+            await MainActor.run {
+                isTransferring = false
+                onOwnershipTransferred()
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                isTransferring = false
+                errorMessage = "Transfer fehlgeschlagen: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
 struct AddMemberView: View {
     @Environment(\.dismiss) private var dismiss
     let groupId: UUID
@@ -321,6 +516,7 @@ struct AddMemberView: View {
     @State private var isAdding = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var shouldAutoDismiss = false  // 👈 NEU: Steuert Auto-Dismiss
     
     private let groupRepo = SupabaseGroupRepository()
     
@@ -386,6 +582,14 @@ struct AddMemberView: View {
                         .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
                 }
             }
+            // 👈 NUR bei Erfolg schließen
+            .onChange(of: shouldAutoDismiss) { oldValue, newValue in
+                if newValue {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
     
@@ -395,6 +599,7 @@ struct AddMemberView: View {
         await MainActor.run {
             errorMessage = nil
             successMessage = nil
+            shouldAutoDismiss = false  // 👈 Reset
             isAdding = true
         }
         
@@ -404,6 +609,7 @@ struct AddMemberView: View {
             await MainActor.run {
                 successMessage = "✅ \(trimmedEmail) wurde als \(selectedRole.displayName) eingeladen!"
                 isAdding = false
+                shouldAutoDismiss = true  // 👈 NUR HIER Auto-Dismiss aktivieren
                 
                 let tempMember = GroupMember(
                     user_id: UUID(),
@@ -419,14 +625,11 @@ struct AddMemberView: View {
                 onMemberAdded(tempMember)
             }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                dismiss()
-            }
-            
         } catch {
             await MainActor.run {
                 errorMessage = "❌ Fehler: \(error.localizedDescription)"
                 isAdding = false
+                shouldAutoDismiss = false  // 👈 Bei Fehler KEIN Auto-Dismiss
             }
         }
     }

@@ -205,10 +205,6 @@ private struct CreateGroupSheet: View {
                         .font(.subheadline)
                 }
                 .buttonStyle(.borderless)
-
-                Text("Standardrolle ist „Mitglied“.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             HStack {
