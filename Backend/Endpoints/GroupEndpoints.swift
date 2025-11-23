@@ -110,7 +110,7 @@ struct SupabaseGroupRepository: GroupRepository {
     func create(name: String, invitedUsers: [(email: String, role: role)]) async throws {
         let ownerId = try await auth.currentUserId()
 
-        // 1) Gruppe anlegen
+        // 1) Gruppe anlegen 
         struct CreateGroupRequest: Encodable {
             let name: String
             let owner_id: UUID

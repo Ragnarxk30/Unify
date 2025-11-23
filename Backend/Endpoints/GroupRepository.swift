@@ -26,7 +26,7 @@ extension GroupRepository {
         try await addMember(groupId: groupId, userId: userId, role: .user)
     }
     
-    // ✅ Convenience Method für inviteMember mit default role
+    // ✅ Convenience Method für inviteMember mit default role 
     func inviteMember(groupId: UUID, email: String) async throws {
         try await inviteMember(groupId: groupId, email: email, role: .user)
     }

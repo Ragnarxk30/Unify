@@ -19,7 +19,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published var recordingDurationString: String = "00:00"
 
-    // MARK: - Internals
+    // MARK: - Internals 
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
 

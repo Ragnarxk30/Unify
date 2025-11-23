@@ -46,7 +46,7 @@ struct GroupChatView: View {
                                 isSelected: isMessageSelected(message)
                             )
                             .id(message.id)
-                            // ✅ TAP GESTURE FÜR SELECTION
+                            // ✅ TAP GESTURE FÜR SELECTION 
                             .onTapGesture {
                                 if isSelectingMessages {
                                     toggleMessageSelection(message)

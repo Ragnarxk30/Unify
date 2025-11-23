@@ -177,7 +177,7 @@ struct ChatEndpoints {
                 return
             }
             
-            // Der Pfad ist alles nach "/object/public/voice-messages/"
+            // Der Pfad ist alles nach "/object/public/voice-messages/" 
             let fullPath = url.path
             print("🔍 Full path from URL: \(fullPath)")
             

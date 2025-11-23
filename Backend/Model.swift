@@ -7,7 +7,7 @@ struct AppUser: Codable {
     let email: String
 }
 
-// Backend/Models/AuthError.swift
+// Backend/Models/AuthError.swift 
 enum AuthError: Error {
     case userCreationFailed
     case userNotFound

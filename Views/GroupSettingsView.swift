@@ -376,7 +376,7 @@ struct GroupSettingsView: View {
     }
 }
 
-// ✅ Extension für Initials
+// ✅ Extension für Initials 
 extension AppUser {
     var initials: String {
         let comps = display_name.split(separator: " ")
