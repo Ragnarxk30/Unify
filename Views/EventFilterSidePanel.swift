@@ -5,18 +5,10 @@ struct EventFilterSidePanel: View {
     let allGroups: [AppGroup]
     @Binding var selectedGroupIDs: Set<UUID>
 
-    private var currentGroupTitle: String {
-        if let id = selectedGroupIDs.first,
-           let group = allGroups.first(where: { $0.id == id }) {
-            return group.name
-        } else {
-            return "Alle Gruppen"
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
+            // Grabber
             HStack {
                 Spacer()
                 Capsule()
@@ -30,6 +22,7 @@ struct EventFilterSidePanel: View {
                 .font(.headline)
                 .padding(.horizontal)
 
+            // Haupt-Scopes
             filterRow(
                 title: "Alle",
                 icon: "circle.grid.3x3.fill",
@@ -48,42 +41,50 @@ struct EventFilterSidePanel: View {
                 targetScope: .groupsOnly
             )
 
+            // Mehrfachauswahl nur bei "Nur Gruppen"
             if scope == .groupsOnly && !allGroups.isEmpty {
                 Divider()
                     .padding(.horizontal)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Gruppe")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Gruppen")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
 
-                    Menu {
-                        Button("Alle Gruppen") {
-                            print("🔧 Auswahl: Alle Gruppen")
-                            selectedGroupIDs.removeAll()
-                        }
-
-                        ForEach(allGroups) { group in
-                            Button(group.name) {
-                                print("🔧 Auswahl Gruppe:", group.name)
-                                selectedGroupIDs = [group.id]
-                            }
-                        }
+                    // "Alle Gruppen" – leert die Auswahl
+                    Button {
+                        selectedGroupIDs.removeAll()
                     } label: {
-                        HStack {
-                            Text(currentGroupTitle)
+                        HStack(spacing: 8) {
+                            Image(systemName: selectedGroupIDs.isEmpty
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                            Text("Alle Gruppen")
                             Spacer()
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .background(Color.secondary.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal)
+                    .buttonStyle(.plain)
+
+                    // Einzelne Gruppen (Mehrfachauswahl möglich)
+                    ForEach(allGroups) { group in
+                        Button {
+                            toggleGroupSelection(group.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: selectedGroupIDs.contains(group.id)
+                                      ? "checkmark.circle.fill"
+                                      : "circle")
+                                Text(group.name)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }
@@ -92,13 +93,9 @@ struct EventFilterSidePanel: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(radius: 20)
-        .onAppear {
-            print("🔍 EventFilterSidePanel.onAppear")
-            print("   scope =", scope)
-            print("   allGroups count =", allGroups.count)
-            print("   selectedGroupIDs =", selectedGroupIDs)
-        }
     }
+
+    // MARK: - Hilfsfunktionen
 
     private func filterRow(
         title: String,
@@ -106,22 +103,33 @@ struct EventFilterSidePanel: View {
         targetScope: CalendarFilterScope
     ) -> some View {
         Button {
-            print("🔧 Filter scope geändert →", targetScope)
             scope = targetScope
             if targetScope != .groupsOnly {
+                // Wenn man den Gruppenfilter verlässt, Auswahl zurücksetzen
                 selectedGroupIDs.removeAll()
             }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "checkmark")
                     .opacity(scope == targetScope ? 1 : 0)
+
                 Image(systemName: icon)
+
                 Text(title)
+
                 Spacer()
             }
             .padding(.horizontal)
             .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
+    }
+
+    private func toggleGroupSelection(_ id: UUID) {
+        if selectedGroupIDs.contains(id) {
+            selectedGroupIDs.remove(id)
+        } else {
+            selectedGroupIDs.insert(id)
+        }
     }
 }
