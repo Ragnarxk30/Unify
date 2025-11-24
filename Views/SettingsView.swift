@@ -7,17 +7,128 @@ struct SettingsView: View {
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
     @State private var alertMessage: String?
-    @State private var currentUser: AppUser? // ✅ Für den echten Usernamen
+    
+    // Editing state
+    @State private var isEditingName = false
+    @State private var editedDisplayName: String = ""
+    @State private var isSavingName = false
 
     var body: some View {
         Form {
-            Section("Profil") {
-                if let user = currentUser {
-                    // ✅ Echten Usernamen anzeigen
-                    Label("Angemeldet als: \(user.display_name)", systemImage: "person.circle")
+            // MARK: - Profil
+            Section {
+                if let user = session.currentUser {
+                    if isEditingName {
+                        // Bearbeiten
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Anzeigename bearbeiten")
+                                .font(.headline)
+
+                            TextField("Anzeigename", text: $editedDisplayName)
+                                .textInputAutocapitalization(.words)
+                                .autocorrectionDisabled(false)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(.secondarySystemBackground))
+                                )
+
+                            HStack {
+                                Button("Abbrechen") {
+                                    isEditingName = false
+                                    editedDisplayName = user.display_name
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isSavingName)
+
+                                Spacer()
+
+                                Button {
+                                    Task { await saveDisplayName() }
+                                } label: {
+                                    if isSavingName {
+                                        ProgressView().tint(.white)
+                                    } else {
+                                        Text("Speichern")
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(
+                                    isSavingName ||
+                                    editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                    editedDisplayName == user.display_name
+                                )
+                            }
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+                        .listRowBackground(Color.clear)
+                    } else {
+                        // Anzeige
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .center, spacing: 12) {
+                                Image(systemName: "person.circle.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundStyle(.blue)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(user.display_name)
+                                        .font(.headline)
+                                    Text(user.email)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+                            }
+
+                            Divider()
+
+                            Button {
+                                editedDisplayName = user.display_name
+                                isEditingName = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "pencil")
+                                    Text("Anzeigename ändern")
+                                    Spacer()
+                                }
+                                .font(.subheadline)
+                            }
+                            .disabled(isSavingName)
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+                        .listRowBackground(Color.clear)
+                    }
                 } else {
-                    Label("Angemeldet als: Lade...", systemImage: "person.circle")
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 32))
+                        VStack(alignment: .leading) {
+                            Text("Angemeldet als")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text("Lade …")
+                                .redacted(reason: .placeholder)
+                        }
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                    .listRowBackground(Color.clear)
                 }
+            } header: {
+                Text("Profil")
             }
             
             // Darstellungsmodus
@@ -43,10 +154,6 @@ struct SettingsView: View {
                 Toggle(isOn: .constant(true)) {
                     Text("Benachrichtigungen")
                 }
-                Toggle(isOn: .constant(false)) {
-                    Text("Experimentelle Features")
-                }
-                // ✅ Test-Buttons entfernt
             }
             
             Section {
@@ -73,30 +180,46 @@ struct SettingsView: View {
                 Text(message)
             }
         }
-        .task {
-            // ✅ Beim Erscheinen den aktuellen User laden
-            await loadCurrentUser()
-        }
     }
 
-    // MARK: - User laden
-    @MainActor
-    private func loadCurrentUser() async {
+    // MARK: - Anzeigename speichern
+    private func saveDisplayName() async {
+        guard let current = session.currentUser else { return }
+        let newName = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != current.display_name else { return }
+        
+        await MainActor.run { isSavingName = true }
         do {
-            let session = try await supabase.auth.session
-            let userId = session.user.id
+            struct UpdatePayload: Encodable {
+                let display_name: String
+            }
+            _ = try await supabase
+                .from("user")
+                .update(UpdatePayload(display_name: newName))
+                .eq("id", value: current.id.uuidString)
+                .select("id, display_name, email")
+                .single()
+                .execute() as PostgrestResponse<AppUser>
             
-            // ✅ User aus der Datenbank laden
-            currentUser = try await supabase
+            let refreshed: AppUser = try await supabase
                 .from("user")
                 .select("id, display_name, email")
-                .eq("id", value: userId)
+                .eq("id", value: current.id.uuidString)
                 .single()
                 .execute()
                 .value
             
+            await MainActor.run {
+                session.setCurrentUser(refreshed)
+                isSavingName = false
+                isEditingName = false
+                alertMessage = "✅ Anzeigename aktualisiert."
+            }
         } catch {
-            print("❌ Fehler beim Laden des Users: \(error)")
+            await MainActor.run {
+                isSavingName = false
+                alertMessage = "❌ Konnte Anzeigenamen nicht speichern: \(error.localizedDescription)"
+            }
         }
     }
 
