@@ -172,3 +172,10 @@ enum CalendarFilterScope: String {
     case personalOnly = "Nur persönliche"
     case groupsOnly = "Nur Gruppen"
 }
+
+enum EventTargetScope: String, CaseIterable, Identifiable {
+    case personal = "Nur für mich"
+    case group    = "Gruppe"
+
+    var id: Self { self }
+}
