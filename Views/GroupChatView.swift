@@ -705,25 +705,42 @@ private struct ChatBubbleView: View {
     @ObservedObject var audioService: AudioRecorderService
     let isSelected: Bool
     
+    // 👈 NEU: Profilbild Service
+    @StateObject private var profileImageService = ProfileImageService()
+    @State private var profileImage: UIImage?
+    @State private var isLoadingImage = false
+    
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
-                // Avatar mit Selection Overlay
+                // 👈 AVATAR MIT PROFILBILD
                 ZStack {
-                    Circle()
-                        .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
-                        .frame(width: 36, height: 36)
-                        .overlay(
-                            Text(initials(for: message.sender.display_name))
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                                .foregroundColor(.white)
-                        )
+                    if isLoadingImage {
+                        ProgressView()
+                            .frame(width: 36, height: 36)
+                    } else if let profileImage = profileImage {
+                        Image(uiImage: profileImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 36, height: 36)
+                            .clipShape(Circle())
+                    } else {
+                        // Fallback: Farbiger Kreis mit Initialen
+                        Circle()
+                            .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
+                            .frame(width: 36, height: 36)
+                            .overlay(
+                                Text(initials(for: message.sender.display_name))
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.white)
+                            )
+                    }
                     
-                    // ✅ BLAUER HAKEN statt grün
+                    // Selection Overlay
                     if isSelected {
                         Circle()
-                            .fill(Color.blue) // ✅ BLAU statt grün
+                            .fill(Color.blue)
                             .frame(width: 16, height: 16)
                             .overlay(
                                 Image(systemName: "checkmark")
@@ -733,6 +750,14 @@ private struct ChatBubbleView: View {
                             .offset(x: 12, y: 12)
                     }
                 }
+                .onAppear {
+                    // 👈 PROFILBILD LADEN
+                    if !isCurrentUser {
+                        Task {
+                            await loadProfileImage(for: message.sent_by)
+                        }
+                    }
+                }
 
                 messageContent
                 Spacer()
@@ -740,7 +765,7 @@ private struct ChatBubbleView: View {
                 Spacer()
                 messageContent
 
-                // Avatar mit Selection Overlay
+                // 👈 EIGENER AVATAR (kannst du auch mit Profilbild erweitern)
                 ZStack {
                     Circle()
                         .fill(Color.blue)
@@ -752,10 +777,9 @@ private struct ChatBubbleView: View {
                                 .foregroundColor(.white)
                         )
                     
-                    // ✅ BLAUER HAKEN statt grün
                     if isSelected {
                         Circle()
-                            .fill(Color.blue) // ✅ BLAU statt grün
+                            .fill(Color.blue)
                             .frame(width: 16, height: 16)
                             .overlay(
                                 Image(systemName: "checkmark")
@@ -769,6 +793,28 @@ private struct ChatBubbleView: View {
         }
         .padding(.horizontal, 8)
         .cornerRadius(8)
+    }
+    
+    // 👈 NEUE FUNKTION: Profilbild laden
+    // 👈 KORRIGIERT: Mit Parameter
+    private func loadProfileImage(for userId: UUID) async {
+        await MainActor.run {
+            isLoadingImage = true
+        }
+        
+        do {
+            let imageData = try await profileImageService.downloadProfilePicture(for: userId) // 👈 "for:" hinzufügen
+            await MainActor.run {
+                profileImage = UIImage(data: imageData)
+                isLoadingImage = false
+            }
+        } catch {
+            print("❌ Konnte Profilbild für \(userId) nicht laden: \(error)")
+            await MainActor.run {
+                isLoadingImage = false
+                profileImage = nil
+            }
+        }
     }
     
     private var messageContent: some View {

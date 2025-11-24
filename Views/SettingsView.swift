@@ -9,8 +9,10 @@ struct SettingsView: View {
     @State private var isLoading = false
     @State private var alertMessage: String?
     
-    // Status für Platzhalteranzeige, aber künftig an Bilddaten gekoppelt
-    @State private var hasProfileImage = true
+    // Profilbild State
+    @State private var hasProfileImage = false
+    @State private var profileImageURL: String = ""
+    @State private var profileImage: UIImage?
 
     // Editing state
     @State private var isEditingName = false
@@ -24,6 +26,10 @@ struct SettingsView: View {
     @State private var showPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var selectedProfileImageData: Data?
+    @State private var isUploadingImage = false
+
+    // Profile Image Service
+    @StateObject private var profileImageService = ProfileImageService()
 
     var body: some View {
         NavigationStack {
@@ -134,7 +140,8 @@ struct SettingsView: View {
                             // Anzeige
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack(alignment: .center, spacing: 12) {
-                                    // Immer als Menu anzeigen, egal ob Bild vorhanden
+                                    // Profilbild mit Menu
+                                    // In der SettingsView - Profilbild Section
                                     Menu {
                                         Button {
                                             showPhotoPicker = true
@@ -142,23 +149,31 @@ struct SettingsView: View {
                                             Label("Profilbild ändern", systemImage: "photo")
                                         }
                                         
-                                        if selectedProfileImageData != nil || hasProfileImage {
+                                        if hasProfileImage {
                                             Button(role: .destructive) {
-                                                removeProfileImage()
+                                                Task { await deleteProfileImage() }
                                             } label: {
                                                 Label("Profilbild löschen", systemImage: "trash")
                                             }
                                         }
                                     } label: {
                                         Group {
-                                            if let data = selectedProfileImageData, let uiImage = UIImage(data: data) {
-                                                Image(uiImage: uiImage)
+                                            if profileImageService.isLoading {
+                                                ProgressView()
+                                                    .frame(width: 46, height: 46)
+                                            } else if let profileImage = profileImage {
+                                                Image(uiImage: profileImage)
                                                     .resizable()
                                                     .aspectRatio(contentMode: .fill)
-                                            } else {
-                                                Image(systemName: hasProfileImage ? "person.circle.fill" : "person.crop.circle.badge.xmark")
+                                            } else if hasProfileImage {
+                                                Image(systemName: "person.circle.fill")
                                                     .symbolRenderingMode(.hierarchical)
-                                                    .foregroundStyle(hasProfileImage ? .blue : .red)
+                                                    .foregroundStyle(.blue)
+                                                    .font(.system(size: 40))
+                                            } else {
+                                                Image(systemName: "person.crop.circle.badge.plus")
+                                                    .symbolRenderingMode(.hierarchical)
+                                                    .foregroundStyle(.blue)
                                                     .font(.system(size: 40))
                                             }
                                         }
@@ -197,9 +212,9 @@ struct SettingsView: View {
                                             Label("Profilbild ändern", systemImage: "photo")
                                         }
                                         
-                                        if selectedProfileImageData != nil || hasProfileImage {
+                                        if hasProfileImage {
                                             Button(role: .destructive) {
-                                                removeProfileImage()
+                                                Task { await deleteProfileImage() }
                                             } label: {
                                                 Label("Profilbild löschen", systemImage: "trash")
                                             }
@@ -287,12 +302,127 @@ struct SettingsView: View {
                     if let data = try? await newItem.loadTransferable(type: Data.self) {
                         await MainActor.run {
                             selectedProfileImageData = data
-                            hasProfileImage = data.isEmpty == false
                         }
+                        await uploadProfileImage(data)
                     }
                 }
             }
+            .task {
+                await checkProfilePictureStatus()
+            }
         }
+    }
+
+    // MARK: - Profilbild Funktionen
+    private func checkProfilePictureStatus() async {
+        do {
+            let exists = try await profileImageService.checkProfilePictureExists()
+            await MainActor.run {
+                hasProfileImage = exists
+            }
+            
+            // Wenn Bild existiert, lade es
+            if exists {
+                await loadProfilePicture()
+            }
+        } catch {
+            print("❌ Check profile picture error: \(error)")
+        }
+    }
+    
+    private func loadProfilePicture() async {
+        do {
+            let imageData = try await profileImageService.downloadProfilePicture()
+            await MainActor.run {
+                profileImage = UIImage(data: imageData)
+                hasProfileImage = true
+            }
+        } catch {
+            print("❌ Load profile picture error: \(error)")
+            await MainActor.run {
+                hasProfileImage = false
+                profileImage = nil
+            }
+        }
+    }
+    
+    private func uploadProfileImage(_ imageData: Data) async {
+        guard let uiImage = UIImage(data: imageData) else {
+            await MainActor.run {
+                alertMessage = "❌ Bild konnte nicht verarbeitet werden"
+            }
+            return
+        }
+        
+        await MainActor.run {
+            isUploadingImage = true
+        }
+        
+        do {
+            let avatarURL = try await profileImageService.uploadProfilePicture(uiImage)
+            
+            // Avatar URL in User-Tabelle speichern
+            try await updateUserProfileWithAvatar(avatarURL)
+            
+            // Cache leeren und Bild neu laden
+            await MainActor.run {
+                profileImage = nil // Cache leeren
+            }
+            
+            // Kurz warten dann neu laden
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            await loadProfilePicture()
+            
+            await MainActor.run {
+                isUploadingImage = false
+                alertMessage = "✅ Profilbild erfolgreich aktualisiert"
+            }
+            
+        } catch {
+            await MainActor.run {
+                isUploadingImage = false
+                alertMessage = "❌ Profilbild konnte nicht hochgeladen werden: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func deleteProfileImage() async {
+        await MainActor.run {
+            isUploadingImage = true
+        }
+        
+        do {
+            try await profileImageService.deleteProfilePicture()
+            
+            // Avatar URL aus User-Tabelle entfernen
+            try await updateUserProfileWithAvatar("")
+            
+            // Cache leeren
+            await MainActor.run {
+                profileImage = nil
+                hasProfileImage = false
+                isUploadingImage = false
+                alertMessage = "✅ Profilbild erfolgreich gelöscht"
+            }
+            
+        } catch {
+            await MainActor.run {
+                isUploadingImage = false
+                alertMessage = "❌ Profilbild konnte nicht gelöscht werden: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func updateUserProfileWithAvatar(_ avatarURL: String) async throws {
+        guard let userId = session.currentUser?.id else { return }
+        
+        let updateData = ["avatar_url": avatarURL]
+        
+        try await supabase
+            .from("user")
+            .update(updateData)
+            .eq("id", value: userId.uuidString)
+            .execute()
     }
 
     // MARK: - Anzeigename speichern
@@ -399,11 +529,5 @@ struct SettingsView: View {
         windowScene.windows.forEach { window in
             window.overrideUserInterfaceStyle = style
         }
-    }
-    
-    private func removeProfileImage() {
-        selectedProfileImageData = nil
-        hasProfileImage = false
-        alertMessage = "✅ Profilbild gelöscht."
     }
 }
