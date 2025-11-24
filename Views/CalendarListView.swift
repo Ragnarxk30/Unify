@@ -107,6 +107,7 @@ struct CalendarListView: View {
         }
         .task {
             await loadEvents()
+            await loadGroups()
         }
         .sheet(item: $editingEvent) { event in
             EditEventView(event: event) {
@@ -259,6 +260,21 @@ struct CalendarListView: View {
             events.removeAll { $0.id == event.id }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+    
+    @MainActor
+    private func loadGroups() async {
+        do {
+            let groupRepo = SupabaseGroupRepository()
+            let groups = try await groupRepo.fetchGroups()
+            allGroups = groups
+            print("✅ CalendarListView: \(groups.count) Gruppen in allGroups geladen")
+            for g in groups {
+                print("   • \(g.name) – \(g.id)")
+            }
+        } catch {
+            print("❌ Fehler beim Laden der Gruppen:", error)
         }
     }
 }

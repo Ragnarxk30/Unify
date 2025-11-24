@@ -1,11 +1,3 @@
-//
-//  EventFilterSidePanel.swift
-//  Unify
-//
-//  Created by Jonas Dunkenberger on 23.11.25.
-//
-
-
 import SwiftUI
 
 struct EventFilterSidePanel: View {
@@ -13,10 +5,18 @@ struct EventFilterSidePanel: View {
     let allGroups: [AppGroup]
     @Binding var selectedGroupIDs: Set<UUID>
 
+    private var currentGroupTitle: String {
+        if let id = selectedGroupIDs.first,
+           let group = allGroups.first(where: { $0.id == id }) {
+            return group.name
+        } else {
+            return "Alle Gruppen"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
-            // Grabber
             HStack {
                 Spacer()
                 Capsule()
@@ -30,7 +30,6 @@ struct EventFilterSidePanel: View {
                 .font(.headline)
                 .padding(.horizontal)
 
-            // Haupt-Scopes
             filterRow(
                 title: "Alle",
                 icon: "circle.grid.3x3.fill",
@@ -49,33 +48,42 @@ struct EventFilterSidePanel: View {
                 targetScope: .groupsOnly
             )
 
-            // Gruppenauswahl nur bei "Nur Gruppen"
             if scope == .groupsOnly && !allGroups.isEmpty {
                 Divider()
                     .padding(.horizontal)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Gruppen")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Gruppe")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
 
-                    ForEach(allGroups) { group in
-                        Button {
-                            toggleGroupSelection(group.id)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: selectedGroupIDs.contains(group.id)
-                                      ? "checkmark.circle.fill"
-                                      : "circle")
-                                Text(group.name)
-                                Spacer()
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 4)
+                    Menu {
+                        Button("Alle Gruppen") {
+                            print("🔧 Auswahl: Alle Gruppen")
+                            selectedGroupIDs.removeAll()
                         }
-                        .buttonStyle(.plain)
+
+                        ForEach(allGroups) { group in
+                            Button(group.name) {
+                                print("🔧 Auswahl Gruppe:", group.name)
+                                selectedGroupIDs = [group.id]
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text(currentGroupTitle)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color.secondary.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
+                    .padding(.horizontal)
                 }
             }
         }
@@ -84,6 +92,12 @@ struct EventFilterSidePanel: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(radius: 20)
+        .onAppear {
+            print("🔍 EventFilterSidePanel.onAppear")
+            print("   scope =", scope)
+            print("   allGroups count =", allGroups.count)
+            print("   selectedGroupIDs =", selectedGroupIDs)
+        }
     }
 
     private func filterRow(
@@ -92,29 +106,22 @@ struct EventFilterSidePanel: View {
         targetScope: CalendarFilterScope
     ) -> some View {
         Button {
+            print("🔧 Filter scope geändert →", targetScope)
             scope = targetScope
+            if targetScope != .groupsOnly {
+                selectedGroupIDs.removeAll()
+            }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "checkmark")
                     .opacity(scope == targetScope ? 1 : 0)
-
                 Image(systemName: icon)
-
                 Text(title)
-
                 Spacer()
             }
             .padding(.horizontal)
             .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
-    }
-
-    private func toggleGroupSelection(_ id: UUID) {
-        if selectedGroupIDs.contains(id) {
-            selectedGroupIDs.remove(id)
-        } else {
-            selectedGroupIDs.insert(id)
-        }
     }
 }
