@@ -10,6 +10,7 @@ struct GroupMonthlyCalendarView: View {
     @State private var events: [Event] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var showAddEvent: Bool = false
 
     private var cal: Calendar { Calendar.current }
     private var monthInterval: DateInterval {
@@ -122,6 +123,22 @@ struct GroupMonthlyCalendarView: View {
             if let selectedDay {
                 DayEventsSheet(date: selectedDay, events: events(on: selectedDay))
                     .presentationDetents([.medium])
+            }
+        }
+        // 👇 Sheet zum Anlegen eines neuen Gruppentermins
+        .sheet(isPresented: $showAddEvent) {
+            GroupEventsView(groupID: groupID)
+                .presentationDetents([.medium, .large])
+        }
+        .toolbar {
+            // Plus oben rechts in der Nav-Bar
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showAddEvent = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Neuen Termin anlegen")
             }
         }
         .onAppear {

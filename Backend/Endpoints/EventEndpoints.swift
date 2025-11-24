@@ -37,6 +37,23 @@ struct SupabaseEventRepository: EventRepository {
             case createdBy = "created_by"
         }
     }
+    
+    // 👇 neu: Insert ohne group_id (wird in DB NULL)
+    private struct PersonalEventInsert: Encodable {
+        let title: String
+        let details: String?
+        let startsAt: Date
+        let endsAt: Date?
+        let createdBy: UUID
+
+        enum CodingKeys: String, CodingKey {
+            case title
+            case details
+            case startsAt  = "starts_at"
+            case endsAt    = "ends_at"
+            case createdBy = "created_by"
+        }
+    }
 
     private struct EventUpdatePayload: Encodable {
         let title: String
@@ -180,7 +197,58 @@ struct SupabaseEventRepository: EventRepository {
         // RLS sorgt dafür, dass nur Events aus Gruppen zurückkommen,
         // in denen auth.uid() Mitglied ist.
     }
+    
+    func createPersonal(
+        title: String,
+        details: String?,
+        startsAt: Date,
+        endsAt: Date?
+    ) async throws {
+        let userId = try await auth.currentUserId()
+
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw EventError.emptyTitle }
+        if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
+
+        let payload = PersonalEventInsert(
+            title: trimmed,
+            details: details,
+            startsAt: startsAt,
+            endsAt: endsAt,
+            createdBy: userId
+        )
+
+        try await db
+            .from(eventsTable)
+            .insert(payload)
+            .execute()
+    }
+
+    /// nur persönliche Events des aktuellen Users laden
+    func listPersonalEvents() async throws -> [Event] {
+        let rows: [EventRow] = try await db
+            .from(eventsTable)
+            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
+            .is("group_id", value: nil)                    // 👈 nur group_id IS NULL
+            .order("starts_at", ascending: true)
+            .execute()
+            .value
+
+        return rows.map { row in
+            Event(
+                id: row.id,
+                title: row.title,
+                details: row.details,
+                starts_at: row.startsAt,
+                ends_at: row.endsAt,
+                group_id: row.groupId,
+                created_by: row.createdBy,
+                created_at: row.createdAt
+            )
+        }
+    }
 }
+
 
 enum EventError: Error {
     case emptyTitle

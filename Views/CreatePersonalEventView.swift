@@ -1,45 +1,28 @@
-//
-//  EditEventView.swift
-//  Unify
-//
-//  Created by Jonas Dunkenberger on 16.11.25.
-//
-
 import SwiftUI
 
-struct EditEventView: View {
+struct CreatePersonalEventView: View {
     @Environment(\.dismiss) private var dismiss
-
-    let event: Event
-    let onUpdated: () -> Void
-
-    @State private var title: String
-    @State private var details: String
-    @State private var start: Date
-    @State private var end: Date
-
-    init(event: Event, onUpdated: @escaping () -> Void) {
-        self.event = event
-        self.onUpdated = onUpdated
-        _title   = State(initialValue: event.title)
-        _details = State(initialValue: event.details ?? "")
-        _start   = State(initialValue: event.starts_at)
-        _end     = State(initialValue: event.ends_at)
-    }
-
+    
+    let onCreated: () -> Void
+    
+    @State private var title = ""
+    @State private var details = ""
+    @State private var start = Date().addingTimeInterval(3600)
+    @State private var end   = Date().addingTimeInterval(7200)
+    
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-
-                    // Card mit Eingaben
+                    
+                    // Eingabebereich für neuen persönlichen Termin
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Termin bearbeiten")
+                        Text("Neuen Termin hinzufügen")
                             .font(.headline)
-
+                        
                         TextField("Titel", text: $title)
                             .textFieldStyle(.roundedBorder)
-
+                        
                         Text("Details (optional)")
                             .font(.subheadline)
                         TextEditor(text: $details)
@@ -48,18 +31,14 @@ struct EditEventView: View {
                                 RoundedRectangle(cornerRadius: 8)
                                     .stroke(Color.secondary.opacity(0.3))
                             )
-
-                        Text("Zeit")
-                            .font(.subheadline).bold()
-                            .padding(.top, 4)
-
+                        
                         DatePicker("Start", selection: $start)
                         DatePicker("Ende", selection: $end)
-
+                        
                         Button {
-                            Task { await saveChanges() }
+                            Task { await save() }
                         } label: {
-                            Label("Änderungen speichern", systemImage: "checkmark")
+                            Label("Termin hinzufügen", systemImage: "plus")
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -78,52 +57,37 @@ struct EditEventView: View {
                 .padding(.top, 16)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Termin bearbeiten")
+            .navigationTitle("Neuer Termin")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
-                }
-                // Optional: zusätzlich oben „Speichern“-Button lassen
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Speichern") {
-                        Task { await saveChanges() }
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
         }
-        // Start/Ende mitziehen wie in den anderen Views
+        // ⬇️ Start/Ende wie in GroupEventsView koppeln
         .onChange(of: start) { oldStart, newStart in
             let duration = end.timeIntervalSince(oldStart)
             end = newStart.addingTimeInterval(max(duration, 0))
         }
     }
-
+    
     // MARK: - Speichern
-
-    private func saveChanges() async {
+    private func save() async {
         let trimmedTitle   = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
-
         guard !trimmedTitle.isEmpty else { return }
-
+        
         do {
             let repo = SupabaseEventRepository()
-            try await repo.update(
-                eventId: event.id,
+            try await repo.createPersonal(
                 title: trimmedTitle,
                 details: trimmedDetails.isEmpty ? nil : trimmedDetails,
                 startsAt: start,
                 endsAt: end
             )
-
+            
             await MainActor.run {
-                onUpdated()
+                onCreated()
                 dismiss()
             }
         } catch {
-            print("❌ Fehler beim Aktualisieren des Events:", error)
+            print("❌ Fehler beim Erstellen des Events:", error)
         }
     }
 }

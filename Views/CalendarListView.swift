@@ -1,22 +1,130 @@
 import SwiftUI
 
-enum CalendarMode: String, CaseIterable, Hashable {
-    case list = "Liste"
-    case calendar = "Kalender"
-}
-
 struct CalendarListView: View {
     @State private var events: [Event] = []
     @State private var mode: CalendarMode = .list
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var editingEvent: Event? = nil
+    @State private var showAddEvent = false
+
+    // Filter-State
+    @State private var showFilterPanel = false
+    @State private var filterScope: CalendarFilterScope = .all
+    @State private var selectedGroupIDs: Set<UUID> = []
+    @State private var allGroups: [AppGroup] = []   // später aus Repo laden
+
+    // Frame des Filter-Buttons (global)
+    @State private var filterButtonFrame: CGRect = .zero
 
     private let sideInset: CGFloat = 20
 
+    // MARK: - Gefilterte Events
+    private var filteredEvents: [Event] {
+        events.filter { ev in
+            switch filterScope {
+            case .all:
+                return true
+            case .personalOnly:
+                return ev.group_id == nil
+            case .groupsOnly:
+                guard let gid = ev.group_id else { return false }
+                if selectedGroupIDs.isEmpty { return true }
+                return selectedGroupIDs.contains(gid)
+            }
+        }
+    }
+
+    // MARK: - Body
     var body: some View {
+        ZStack {
+            mainContent
+                .blur(radius: showFilterPanel ? 2 : 0)
+                .overlay {
+                    if showFilterPanel {
+                        ZStack(alignment: .topLeading) {
+                            // Abdunkelung
+                            Color.black.opacity(0.25)
+                                .ignoresSafeArea()
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.25)) {
+                                        showFilterPanel = false
+                                    }
+                                }
+
+                            // Popup – an Button gehängt
+                            EventFilterSidePanel(
+                                scope: $filterScope,
+                                allGroups: allGroups,
+                                selectedGroupIDs: $selectedGroupIDs
+                            )
+                            .frame(maxWidth: 280, alignment: .leading)
+                            .offset(
+                                x: filterButtonFrame.minX,
+                                y: filterButtonFrame.maxY + 8
+                            )
+                            .transition(.opacity.combined(with: .scale))
+                        }
+                    }
+                }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showFilterPanel)
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showFilterPanel = true
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel("Filter öffnen")
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .preference(
+                                key: ButtonFramePreferenceKey.self,
+                                value: geo.frame(in: .global)
+                            )
+                    }
+                )
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showAddEvent = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Neuen Termin anlegen")
+            }
+        }
+        .onPreferenceChange(ButtonFramePreferenceKey.self) { newValue in
+            filterButtonFrame = newValue
+        }
+        .task {
+            await loadEvents()
+            await loadGroups()
+        }
+        .sheet(item: $editingEvent) { event in
+            EditEventView(event: event) {
+                Task { await loadEvents() }
+            }
+        }
+        .sheet(isPresented: $showAddEvent) {
+            CreatePersonalEventView {
+                Task { await loadEvents() }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: - Hauptinhalt
+    private var mainContent: some View {
         VStack(spacing: 0) {
-            // MARK: Picker oben wie in deinem Screenshot
             Picker("Ansicht", selection: $mode) {
                 ForEach(CalendarMode.allCases, id: \.self) { mode in
                     Text(mode.rawValue).tag(mode)
@@ -26,13 +134,12 @@ struct CalendarListView: View {
             .padding(.horizontal, sideInset)
             .padding(.top, 15)
 
-            // MARK: Inhalt unter dem Picker
             Group {
                 if isLoading {
                     ProgressView("Lade Termine...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                } else if let errorMessage = errorMessage {
+                } else if let errorMessage {
                     VStack(spacing: 12) {
                         Text("Fehler beim Laden der Termine")
                             .font(.headline)
@@ -56,24 +163,11 @@ struct CalendarListView: View {
                 }
             }
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await loadEvents()
-        }
-        .sheet(item: $editingEvent) { event in
-            EditEventView(event: event) {
-                Task { await loadEvents() }
-            }
-        }
     }
-
-    // MARK: - List-Ansicht mit Swipe Actions
 
     private var listContent: some View {
         List {
-            if events.isEmpty {
+            if filteredEvents.isEmpty {
                 Section {
                     emptyStateView
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -81,13 +175,15 @@ struct CalendarListView: View {
                 .listRowBackground(Color.clear)
             } else {
                 Section {
-                    ForEach(events) { event in
+                    ForEach(filteredEvents) { event in
                         EventCard(event: event)
                             .listRowInsets(
-                                EdgeInsets(top: 8,
-                                           leading: sideInset,
-                                           bottom: 8,
-                                           trailing: sideInset)
+                                EdgeInsets(
+                                    top: 8,
+                                    leading: sideInset,
+                                    bottom: 8,
+                                    trailing: sideInset
+                                )
                             )
                             .listRowBackground(Color.clear)
                             .swipeActions(edge: .trailing) {
@@ -108,11 +204,9 @@ struct CalendarListView: View {
             }
         }
         .listStyle(.plain)
-        .scrollContentBackground(.hidden) // kein grauer Listenhintergrund
+        .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
     }
-
-    // MARK: - Empty / Placeholder
 
     private var emptyStateView: some View {
         VStack(spacing: 12) {
@@ -151,10 +245,8 @@ struct CalendarListView: View {
         do {
             let repo = SupabaseEventRepository()
             events = try await repo.listUserEvents()
-            print("✅ Persönliche Events geladen")
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Fehler beim Laden der Events:", error)
         }
 
         isLoading = false
@@ -168,57 +260,29 @@ struct CalendarListView: View {
             events.removeAll { $0.id == event.id }
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Fehler beim Löschen des Events:", error)
+        }
+    }
+    
+    @MainActor
+    private func loadGroups() async {
+        do {
+            let groupRepo = SupabaseGroupRepository()
+            let groups = try await groupRepo.fetchGroups()
+            allGroups = groups
+            print("✅ CalendarListView: \(groups.count) Gruppen in allGroups geladen")
+            for g in groups {
+                print("   • \(g.name) – \(g.id)")
+            }
+        } catch {
+            print("❌ Fehler beim Laden der Gruppen:", error)
         }
     }
 }
 
-// MARK: - Card 
+struct ButtonFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
 
-private struct EventCard: View {
-    let event: Event
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(event.title)
-                .font(.title3).bold()
-                .foregroundStyle(.primary)
-
-            Text(Self.format(event.starts_at, event.ends_at))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if let details = event.details,
-               !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(details)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(3)
-            }
-        }
-        .cardStyle() // deine bestehende Card-Optik, passt sich Light/Dark an
-    }
-
-    static func format(_ start: Date, _ end: Date) -> String {
-        let cal = Calendar.current
-        let sameDay = cal.isDate(start, inSameDayAs: end)
-
-        let dfDateTime = DateFormatter()
-        dfDateTime.locale = .current
-        dfDateTime.dateFormat = "dd.MM.yy, HH:mm"
-
-        if sameDay {
-            let dfDate = DateFormatter()
-            dfDate.locale = .current
-            dfDate.dateFormat = "dd.MM.yy, HH:mm"
-
-            let dfTime = DateFormatter()
-            dfTime.locale = .current
-            dfTime.dateFormat = "HH:mm"
-
-            return "\(dfDate.string(from: start)) – \(dfTime.string(from: end))"
-        } else {
-            return "\(dfDateTime.string(from: start)) – \(dfDateTime.string(from: end))"
-        }
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
     }
 }
