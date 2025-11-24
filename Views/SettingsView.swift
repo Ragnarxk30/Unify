@@ -1,193 +1,274 @@
 import SwiftUI
 import Supabase
+import PhotosUI
 
 struct SettingsView: View {
     @EnvironmentObject var session: SessionStore
-    // Speichert die Auswahl persistent 
+
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
     @State private var alertMessage: String?
-    
+
     // Editing state
     @State private var isEditingName = false
     @State private var editedDisplayName: String = ""
     @State private var isSavingName = false
 
+    @State private var isEditingEmail = false
+    @State private var editedEmail: String = ""
+    @State private var isSavingEmail = false
+
+    @State private var showPhotoPicker = false
+    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var selectedProfileImageData: Data?
+
     var body: some View {
-        Form {
-            // MARK: - Profil
-            Section {
-                if let user = session.currentUser {
-                    if isEditingName {
-                        // Bearbeiten
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Anzeigename bearbeiten")
-                                .font(.headline)
+        NavigationStack {
+            Form {
+                // MARK: - Profil
+                Section {
+                    if let user = session.currentUser {
+                        if isEditingName {
+                            // Bearbeiten Anzeigename
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Anzeigename bearbeiten")
+                                    .font(.headline)
 
-                            TextField("Anzeigename", text: $editedDisplayName)
-                                .textInputAutocapitalization(.words)
-                                .autocorrectionDisabled(false)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color(.secondarySystemBackground))
-                                )
+                                TextField("Anzeigename", text: $editedDisplayName)
+                                    .textInputAutocapitalization(.words)
+                                    .autocorrectionDisabled(false)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color(.secondarySystemBackground))
+                                    )
 
-                            HStack {
-                                Button("Abbrechen") {
-                                    isEditingName = false
-                                    editedDisplayName = user.display_name
+                                HStack {
+                                    Button("Abbrechen") {
+                                        isEditingName = false
+                                        editedDisplayName = user.display_name
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isSavingName)
+
+                                    Spacer()
+
+                                    Button {
+                                        Task { await saveDisplayName() }
+                                    } label: {
+                                        if isSavingName {
+                                            ProgressView().tint(.white)
+                                        } else {
+                                            Text("Speichern")
+                                        }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(
+                                        isSavingName ||
+                                        editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                        editedDisplayName == user.display_name
+                                    )
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(isSavingName)
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                            .listRowBackground(Color.clear)
+                        } else if isEditingEmail {
+                            // Bearbeiten E-Mail
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("E-Mail bearbeiten")
+                                    .font(.headline)
 
-                                Spacer()
+                                TextField("E-Mail", text: $editedEmail)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.emailAddress)
+                                    .autocorrectionDisabled(true)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(Color(.secondarySystemBackground))
+                                    )
 
-                                Button {
-                                    Task { await saveDisplayName() }
-                                } label: {
-                                    if isSavingName {
-                                        ProgressView().tint(.white)
+                                HStack {
+                                    Button("Abbrechen") {
+                                        isEditingEmail = false
+                                        editedEmail = user.email
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isSavingEmail)
+
+                                    Spacer()
+
+                                    Button {
+                                        Task { await saveEmail() }
+                                    } label: {
+                                        if isSavingEmail {
+                                            ProgressView().tint(.white)
+                                        } else {
+                                            Text("Speichern")
+                                        }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(
+                                        isSavingEmail ||
+                                        editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                        editedEmail == user.email
+                                    )
+                                }
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                            .listRowBackground(Color.clear)
+                        } else {
+                            // Anzeige
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(alignment: .center, spacing: 12) {
+                                    if let data = selectedProfileImageData, let uiImage = UIImage(data: data) {
+                                        Image(uiImage: uiImage)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: 46, height: 46)
+                                            .clipShape(Circle())
                                     } else {
-                                        Text("Speichern")
+                                        Image(systemName: "person.circle.fill")
+                                            .font(.system(size: 40))
+                                            .foregroundStyle(.blue)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(user.display_name)
+                                            .font(.headline)
+                                        Text(user.email)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    Menu {
+                                        Button {
+                                            editedDisplayName = user.display_name
+                                            isEditingName = true
+                                        } label: {
+                                            Label("Anzeigename bearbeiten", systemImage: "pencil")
+                                        }
+
+                                        Button {
+                                            editedEmail = user.email
+                                            isEditingEmail = true
+                                        } label: {
+                                            Label("E-Mail aktualisieren", systemImage: "envelope")
+                                        }
+
+                                        Button {
+                                            showPhotoPicker = true
+                                        } label: {
+                                            Label("Profilbild ändern", systemImage: "photo")
+                                        }
+                                    } label: {
+                                        Image(systemName: "gearshape.fill")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(8)
+                                            .background(
+                                                Circle()
+                                                    .fill(Color(.secondarySystemBackground))
+                                            )
                                     }
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(
-                                    isSavingName ||
-                                    editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                    editedDisplayName == user.display_name
-                                )
+
+                                Divider()
                             }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                            .listRowBackground(Color.clear)
                         }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color(.secondarySystemBackground))
-                        )
-                        .listRowBackground(Color.clear)
                     } else {
-                        // Anzeige
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .center, spacing: 12) {
-                                Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundStyle(.blue)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(user.display_name)
-                                        .font(.headline)
-                                    Text(user.email)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
+                        // Placeholder wenn kein currentUser (lädt)
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.circle")
+                                .font(.system(size: 32))
+                            VStack(alignment: .leading) {
+                                Text("Angemeldet als")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Text("Lade …")
+                                    .redacted(reason: .placeholder)
                             }
-
-                            Divider()
-
-                            Button {
-                                editedDisplayName = user.display_name
-                                isEditingName = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "pencil")
-                                    Text("Anzeigename ändern")
-                                    Spacer()
-                                }
-                                .font(.subheadline)
-                            }
-                            .disabled(isSavingName)
                         }
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 .fill(Color(.secondarySystemBackground))
                         )
-                        .listRowBackground(Color.clear)
-                    }
-                } else {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.circle")
-                            .font(.system(size: 32))
-                        VStack(alignment: .leading) {
-                            Text("Angemeldet als")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            Text("Lade …")
-                                .redacted(reason: .placeholder)
-                        }
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color(.secondarySystemBackground))
-                    )
-                    .listRowBackground(Color.clear)
-                }
-            } header: {
-                Text("Profil")
-            }
-            
-            // Darstellungsmodus
-            Section("Darstellung") {
-                VStack(spacing: 12) {
-                    HStack(spacing: 8) {
-                        appearanceButton(title: "System", key: "system", style: .unspecified)
-                        appearanceButton(title: "Hell",   key: "light",  style: .light)
-                        appearanceButton(title: "Dunkel", key: "dark",   style: .dark)
                     }
                 }
-                .onAppear {
-                    applySavedAppearance()
-                }
-            }
-            
-            // Hintergünde
-            Section("Hintergrund") {
-                // Deine Hintergrund-Einstellungen hier
-            }
 
-            Section("App") {
-                Toggle(isOn: .constant(true)) {
-                    Text("Benachrichtigungen")
+                // MARK: - Erscheinungsbild
+                Section("Erscheinungsbild") {
+                    HStack(spacing: 8) {
+                        appearanceButton(title: "Hell", key: "light", style: .light)
+                        appearanceButton(title: "Dunkel", key: "dark", style: .dark)
+                        appearanceButton(title: "System", key: "system", style: .unspecified)
+                    }
+                }
+
+                // MARK: - Abmelden
+                Section {
+                    Button(role: .destructive) {
+                        Task {
+                            do {
+                                try await SupabaseAuthRepository().signOut()
+                                await MainActor.run { session.markSignedOut() }
+                                alertMessage = "✅ Erfolgreich abgemeldet."
+                            } catch {
+                                alertMessage = "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
+                            }
+                        }
+                    } label: {
+                        Text("Abmelden")
+                    }
                 }
             }
-            
-            Section {
-                Button(role: .destructive) {
-                    Task {
-                        do {
-                            try await SupabaseAuthRepository().signOut()
-                            await MainActor.run { session.markSignedOut() }
-                            alertMessage = "✅ Erfolgreich abgemeldet."
-                        } catch {
-                            alertMessage = "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
+            .navigationTitle("Einstellungen")
+            .alert("Ergebnis", isPresented: .constant(alertMessage != nil)) {
+                Button("OK") { alertMessage = nil }
+            } message: {
+                if let message = alertMessage {
+                    Text(message)
+                }
+            }
+            .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
+            .onChange(of: photoPickerItem) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self) {
+                        await MainActor.run {
+                            selectedProfileImageData = data
                         }
                     }
-                } label: {
-                    Text("Abmelden")
                 }
-            }
-        }
-        .navigationTitle("Einstellungen")
-        .alert("Ergebnis", isPresented: .constant(alertMessage != nil)) {
-            Button("OK") { alertMessage = nil }
-        } message: {
-            if let message = alertMessage {
-                Text(message)
             }
         }
     }
 
     // MARK: - Anzeigename speichern
-    private func saveDisplayName() async {
+    func saveDisplayName() async {
         guard let current = session.currentUser else { return }
         let newName = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty, newName != current.display_name else { return }
-        
+
         await MainActor.run { isSavingName = true }
         do {
             struct UpdatePayload: Encodable {
@@ -200,7 +281,7 @@ struct SettingsView: View {
                 .select("id, display_name, email")
                 .single()
                 .execute() as PostgrestResponse<AppUser>
-            
+
             let refreshed: AppUser = try await supabase
                 .from("user")
                 .select("id, display_name, email")
@@ -208,7 +289,7 @@ struct SettingsView: View {
                 .single()
                 .execute()
                 .value
-            
+
             await MainActor.run {
                 session.setCurrentUser(refreshed)
                 isSavingName = false
@@ -223,9 +304,47 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Appearance Methods
+    // MARK: - E-Mail speichern
+    func saveEmail() async {
+        guard let current = session.currentUser else { return }
+        let trimmed = editedEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != current.email else { return }
 
-    private func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
+        await MainActor.run { isSavingEmail = true }
+        do {
+            struct UpdatePayload: Encodable { let email: String }
+            _ = try await supabase
+                .from("user")
+                .update(UpdatePayload(email: trimmed))
+                .eq("id", value: current.id.uuidString)
+                .select("id, display_name, email")
+                .single()
+                .execute() as PostgrestResponse<AppUser>
+
+            let refreshed: AppUser = try await supabase
+                .from("user")
+                .select("id, display_name, email")
+                .eq("id", value: current.id.uuidString)
+                .single()
+                .execute()
+                .value
+
+            await MainActor.run {
+                session.setCurrentUser(refreshed)
+                isSavingEmail = false
+                isEditingEmail = false
+                alertMessage = "✅ E-Mail aktualisiert."
+            }
+        } catch {
+            await MainActor.run {
+                isSavingEmail = false
+                alertMessage = "❌ Konnte E-Mail nicht speichern: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Appearance Methods
+    func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
         Button {
             appAppearance = key
             setAppearance(style)
@@ -249,17 +368,4 @@ struct SettingsView: View {
             window.overrideUserInterfaceStyle = style
         }
     }
-
-    private func applySavedAppearance() {
-        switch appAppearance {
-        case "light": setAppearance(.light)
-        case "dark":  setAppearance(.dark)
-        default:      setAppearance(.unspecified)
-        }
-    }
-}
-
-#Preview {
-    SettingsView()
-        .environmentObject(SessionStore())
 }
