@@ -145,3 +145,15 @@ enum GroupError: Error {
     case userNotFound
     case cannotLeaveAsOwnerWithoutSuccessor // 👈 NEU
 }
+
+
+enum CalendarMode: String, CaseIterable, Hashable {
+    case list = "Liste"
+    case calendar = "Kalender"
+}
+
+enum CalendarFilterScope: String {
+    case all = "Alle"
+    case personalOnly = "Nur persönliche"
+    case groupsOnly = "Nur Gruppen"
+}

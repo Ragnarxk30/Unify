@@ -1,3 +1,11 @@
+//
+//  EventCard.swift
+//  Unify
+//
+//  Created by Jonas Dunkenberger on 23.11.25.
+//
+
+
 import SwiftUI
 
 struct EventCard: View {
