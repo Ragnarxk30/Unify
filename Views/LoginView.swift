@@ -159,6 +159,7 @@ struct LoginView: View {
                 
                 await MainActor.run {
                     isLoading = false
+                    session.setCurrentUser(user)   // ✅ User im SessionStore speichern
                     print("✅ Login erfolgreich: \(user.display_name)")
                     onSuccess()
                 }

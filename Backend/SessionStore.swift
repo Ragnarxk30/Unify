@@ -7,6 +7,7 @@ final class SessionStore: ObservableObject {
     private let authRepo: AuthRepository = SupabaseAuthRepository()
     @Published private(set) var isSignedIn = false
     @Published private(set) var isWaitingForEmailConfirmation = false
+    @Published var currentUser: AppUser?  // ✅ Aktueller AppUser für alle Views
 
     private var pollTask: Task<Void, Never>?
     private var authStateTask: Task<Void, Never>?
@@ -46,6 +47,7 @@ final class SessionStore: ObservableObject {
                 } else {
                     self.isSignedIn = false
                     self.isWaitingForEmailConfirmation = false
+                    self.currentUser = nil
                     print("✅ Initial Session: Signed Out")
                 }
                 
@@ -58,6 +60,7 @@ final class SessionStore: ObservableObject {
             case .signedOut:
                 self.isSignedIn = false
                 self.isWaitingForEmailConfirmation = false
+                self.currentUser = nil
                 self.pollTask?.cancel()
                 print("✅ Auth State: Signed Out")
                 
@@ -70,11 +73,19 @@ final class SessionStore: ObservableObject {
                 break
             }
         }
+        
+        // Nach State-Wechsel ggf. aktuellen User laden/aktualisieren
+        if isSignedIn {
+            await loadCurrentUserFromSession()
+        }
     }
 
     private func checkInitialSession() {
         Task {
             await refreshSession()
+            if isSignedIn {
+                await loadCurrentUserFromSession()
+            }
         }
     }
 
@@ -85,6 +96,7 @@ final class SessionStore: ObservableObject {
             while !Task.isCancelled && self.isSignedIn {
                 try? await Task.sleep(nanoseconds: UInt64(refreshInterval * 1_000_000_000))
                 await self.refreshSession()
+                await self.loadCurrentUserFromSession()
             }
         }
     }
@@ -118,6 +130,7 @@ final class SessionStore: ObservableObject {
             await MainActor.run {
                 self.isSignedIn = false
                 self.isWaitingForEmailConfirmation = false
+                self.currentUser = nil
             }
             print("❌ Session ungültig: \(error.localizedDescription)")
         }
@@ -126,6 +139,9 @@ final class SessionStore: ObservableObject {
     func manualRefresh() async {
         print("🔄 Manuelles Session Refresh")
         await refreshSession()
+        if isSignedIn {
+            await loadCurrentUserFromSession()
+        }
     }
 
     func signOut() async {
@@ -140,6 +156,7 @@ final class SessionStore: ObservableObject {
         await MainActor.run {
             self.isSignedIn = false
             self.isWaitingForEmailConfirmation = false
+            self.currentUser = nil
         }
         pollTask?.cancel()
     }
@@ -153,6 +170,32 @@ final class SessionStore: ObservableObject {
     func markSignedOut() {
         isSignedIn = false
         isWaitingForEmailConfirmation = false
+        currentUser = nil
         pollTask?.cancel()
     }
+    // MARK: - CurrentUser Handling
+    func setCurrentUser(_ user: AppUser) {
+        currentUser = user
+        markSignedIn()
+    }
+
+    private func loadCurrentUserFromSession() async {
+        do {
+            let session = try await supabase.auth.session
+            let userId = session.user.id
+            let user: AppUser = try await supabase
+                .from("user")
+                .select("id, display_name, email")
+                .eq("id", value: userId)
+                .single()
+                .execute()
+                .value
+            await MainActor.run {
+                self.currentUser = user
+            }
+        } catch {
+            print("❌ Konnte currentUser nicht laden: \(error)")
+        }
+    }
 }
+

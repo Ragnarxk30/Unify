@@ -65,17 +65,10 @@ struct GroupsView: View {
             }
         }
         .sheet(isPresented: $showCreate) {
-            CreateGroupSheet { name, invitedUsers in
-                Task {
-                    do {
-                        // ✅ Jetzt mit Rollen übergeben
-                        try await groupRepo.create(name: name, invitedUsers: invitedUsers)
-                        await loadGroups()
-                    } catch {
-                        print("Fehler beim Erstellen der Gruppe:", error.localizedDescription)
-                    }
-                }
-            }
+            CreateGroupSheet(onGroupCreated: {
+                // 👈 NEU: Callback wenn Gruppe erstellt wurde
+                await loadGroups()
+            })
             .presentationDetents([.medium])
         }
         .task {
@@ -141,23 +134,29 @@ private struct GroupRow: View {
 private struct CreateGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String = ""
+    @State private var isCreating = false
+    @State private var errorMessage: String?
+    @State private var successMessage: String?
+    @State private var shouldAutoDismiss = false
 
     // Eine Zeile pro Einladung (E-Mail + Rolle)
     private struct InviteRow: Identifiable {
         let id = UUID()
         var email: String = ""
-        var role: role = .user    // ✅ Dein enum role verwenden
+        var role: role = .user
         
-        // ✅ Nur user und admin zur Auswahl
         static var availableRoles: [role] {
             [.user, .admin]
         }
     }
 
     @State private var invites: [InviteRow] = [InviteRow()]
-
-    // ✅ ANPASSUNG: Jetzt mit Rollen übergeben
-    let onCreate: (String, [(email: String, role: role)]) -> Void
+    
+    // 👈 NEU: Direkter Zugriff auf Repository
+    private let groupRepo: GroupRepository = SupabaseGroupRepository()
+    
+    // 👈 NEU: Callback für erfolgreiche Erstellung
+    let onGroupCreated: () async -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -190,7 +189,6 @@ private struct CreateGroupSheet: View {
                             .autocorrectionDisabled()
 
                         Picker("Rolle", selection: $invite.role) {
-                            // ✅ Nur user und admin
                             Text("Mitglied").tag(role.user)
                             Text("Admin").tag(role.admin)
                         }
@@ -207,25 +205,95 @@ private struct CreateGroupSheet: View {
                 .buttonStyle(.borderless)
             }
 
+            // 👈 FEHLER ODER ERFOLG ANZEIGEN
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .padding(.top, 8)
+            }
+            
+            if let successMessage = successMessage {
+                Text(successMessage)
+                    .font(.footnote)
+                    .foregroundColor(.green)
+                    .padding(.top, 8)
+            }
+
             HStack {
                 Button("Abbrechen") { dismiss() }
+                    .disabled(isCreating)
+                
                 Spacer()
+                
+                if isCreating {
+                    ProgressView()
+                }
+                
                 Button {
-                    // ✅ Emails mit Rollen übergeben
-                    let invitedUsers = invites
-                        .map { (email: $0.email.trimmingCharacters(in: .whitespacesAndNewlines), role: $0.role) }
-                        .filter { !$0.email.isEmpty }
-
-                    onCreate(name, invitedUsers)
-                    dismiss()
+                    Task {
+                        await createGroup()
+                    }
                 } label: {
                     Text("Gruppe erstellen")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
             }
             .padding(.top, 8)
         }
         .padding(20)
+        // 👈 AUTO-DISMISS BEI ERFOLG
+        .onChange(of: shouldAutoDismiss) { oldValue, newValue in
+            if newValue {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private func createGroup() async {
+        let invitedUsers = invites
+            .map { (email: $0.email.trimmingCharacters(in: .whitespacesAndNewlines), role: $0.role) }
+            .filter { !$0.email.isEmpty }
+
+        isCreating = true
+        errorMessage = nil
+        successMessage = nil
+        shouldAutoDismiss = false
+
+        do {
+            print("🔴 DIREKTER AUFRUF VOR groupRepo.create")
+            // 👈 NEU: Direkter Aufruf statt über Closure
+            try await groupRepo.create(name: name, invitedUsers: invitedUsers)
+            print("🔴 DIREKTER AUFRUF NACH groupRepo.create")
+            
+            await MainActor.run {
+                successMessage = "✅ Gruppe '\(name)' wurde erfolgreich erstellt!"
+                isCreating = false
+                shouldAutoDismiss = true
+            }
+            
+            // 👈 NEU: Gruppen im Hintergrund neu laden
+            await onGroupCreated()
+            
+        } catch {
+            print("🔴 DIREKTER AUFRUF IM CATCH: \(error)")
+            await MainActor.run {
+                if let groupError = error as? GroupError {
+                    switch groupError {
+                    case .unknownAppleIds(let emails):
+                        errorMessage = "❌ Folgende E-Mail-Adressen wurden nicht gefunden: \(emails.joined(separator: ", "))"
+                    default:
+                        errorMessage = "❌ \(groupError.localizedDescription)"
+                    }
+                } else {
+                    errorMessage = "❌ \(error.localizedDescription)"
+                }
+                isCreating = false
+                shouldAutoDismiss = false
+            }
+        }
     }
 }

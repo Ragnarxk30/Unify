@@ -138,12 +138,27 @@ enum role: String, Codable, CaseIterable {
 
 
 // In GroupError.swift
-enum GroupError: Error {
+enum GroupError: Error, LocalizedError {
     case unknownAppleIds([String])
     case emptyName
     case notGroupOwner
     case userNotFound
-    case cannotLeaveAsOwnerWithoutSuccessor // 👈 NEU
+    case cannotLeaveAsOwnerWithoutSuccessor
+    
+    var errorDescription: String? {
+        switch self {
+        case .unknownAppleIds(let emails):
+            return "Folgende E-Mail-Adressen wurden nicht gefunden: \(emails.joined(separator: ", "))"
+        case .emptyName:
+            return "Gruppenname darf nicht leer sein"
+        case .notGroupOwner:
+            return "Nur der Gruppenbesitzer kann diese Aktion ausführen"
+        case .userNotFound:
+            return "Benutzer wurde nicht gefunden"
+        case .cannotLeaveAsOwnerWithoutSuccessor:
+            return "Als Besitzer musst du einen neuen Besitzer auswählen bevor du die Gruppe verlassen kannst"
+        }
+    }
 }
 
 
