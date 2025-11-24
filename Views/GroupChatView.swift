@@ -705,7 +705,7 @@ private struct ChatBubbleView: View {
     @ObservedObject var audioService: AudioRecorderService
     let isSelected: Bool
     
-    // 👈 NEU: Profilbild Service
+    // 👈 Profilbild Service für andere User
     @StateObject private var profileImageService = ProfileImageService()
     @State private var profileImage: UIImage?
     @State private var isLoadingImage = false
@@ -713,29 +713,30 @@ private struct ChatBubbleView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
-                // 👈 AVATAR MIT PROFILBILD
+                // 👈 AVATAR MIT PROFILBILD ODER ASSET-FALLBACK
                 ZStack {
-                    if isLoadingImage {
-                        ProgressView()
-                            .frame(width: 36, height: 36)
-                    } else if let profileImage = profileImage {
-                        Image(uiImage: profileImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 36, height: 36)
-                            .clipShape(Circle())
-                    } else {
-                        // Fallback: Farbiger Kreis mit Initialen
-                        Circle()
-                            .fill(colorManager.color(for: message.sender, isCurrentUser: isCurrentUser))
-                            .frame(width: 36, height: 36)
-                            .overlay(
-                                Text(initials(for: message.sender.display_name))
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.white)
-                            )
+                    Group {
+                        if isLoadingImage {
+                            ProgressView()
+                                .frame(width: 36, height: 36)
+                        } else if let profileImage = profileImage {
+                            // Hochgeladenes Profilbild
+                            Image(uiImage: profileImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            // 👈 ASSET-FALLBACK (wie in SettingsView)
+                            Image("Avatar_Default")
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        }
                     }
+                    .frame(width: 36, height: 36)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                    )
                     
                     // Selection Overlay
                     if isSelected {
@@ -751,7 +752,7 @@ private struct ChatBubbleView: View {
                     }
                 }
                 .onAppear {
-                    // 👈 PROFILBILD LADEN
+                    // 👈 PROFILBILD FÜR ANDEREN USER LADEN
                     if !isCurrentUser {
                         Task {
                             await loadProfileImage(for: message.sent_by)
@@ -767,15 +768,28 @@ private struct ChatBubbleView: View {
 
                 // 👈 EIGENER AVATAR (kannst du auch mit Profilbild erweitern)
                 ZStack {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 36, height: 36)
-                        .overlay(
-                            Text("DU")
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                                .foregroundColor(.white)
-                        )
+                    Group {
+                        if isLoadingImage {
+                            ProgressView()
+                                .frame(width: 36, height: 36)
+                        } else if let profileImage = profileImage {
+                            // Eigenes Profilbild
+                            Image(uiImage: profileImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            // 👈 EIGENER AVATAR MIT ASSET-FALLBACK
+                            Image("Avatar_Default")
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        }
+                    }
+                    .frame(width: 36, height: 36)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                    )
                     
                     if isSelected {
                         Circle()
@@ -789,21 +803,28 @@ private struct ChatBubbleView: View {
                             .offset(x: 12, y: 12)
                     }
                 }
+                .onAppear {
+                    // 👈 EIGENES PROFILBILD LADEN (optional)
+                    if isCurrentUser {
+                        Task {
+                            await loadOwnProfileImage()
+                        }
+                    }
+                }
             }
         }
         .padding(.horizontal, 8)
         .cornerRadius(8)
     }
     
-    // 👈 NEUE FUNKTION: Profilbild laden
-    // 👈 KORRIGIERT: Mit Parameter
+    // 👈 PROFILBILD FÜR ANDEREN USER LADEN
     private func loadProfileImage(for userId: UUID) async {
         await MainActor.run {
             isLoadingImage = true
         }
         
         do {
-            let imageData = try await profileImageService.downloadProfilePicture(for: userId) // 👈 "for:" hinzufügen
+            let imageData = try await profileImageService.downloadProfilePicture(for: userId)
             await MainActor.run {
                 profileImage = UIImage(data: imageData)
                 isLoadingImage = false
@@ -812,7 +833,28 @@ private struct ChatBubbleView: View {
             print("❌ Konnte Profilbild für \(userId) nicht laden: \(error)")
             await MainActor.run {
                 isLoadingImage = false
-                profileImage = nil
+                profileImage = nil // 👈 Fallback zu Asset wird angezeigt
+            }
+        }
+    }
+    
+    // 👈 EIGENES PROFILBILD LADEN (optional)
+    private func loadOwnProfileImage() async {
+        await MainActor.run {
+            isLoadingImage = true
+        }
+        
+        do {
+            let imageData = try await profileImageService.downloadProfilePicture()
+            await MainActor.run {
+                profileImage = UIImage(data: imageData)
+                isLoadingImage = false
+            }
+        } catch {
+            print("❌ Konnte eigenes Profilbild nicht laden: \(error)")
+            await MainActor.run {
+                isLoadingImage = false
+                profileImage = nil // 👈 Fallback zu Asset wird angezeigt
             }
         }
     }

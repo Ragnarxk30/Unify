@@ -19,10 +19,6 @@ struct SettingsView: View {
     @State private var editedDisplayName: String = ""
     @State private var isSavingName = false
 
-    @State private var isEditingEmail = false
-    @State private var editedEmail: String = ""
-    @State private var isSavingEmail = false
-
     @State private var showPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var selectedProfileImageData: Data?
@@ -86,62 +82,11 @@ struct SettingsView: View {
                                     .fill(Color(.secondarySystemBackground))
                             )
                             .listRowBackground(Color.clear)
-                        } else if isEditingEmail {
-                            // Bearbeiten E-Mail
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("E-Mail bearbeiten")
-                                    .font(.headline)
-
-                                TextField("E-Mail", text: $editedEmail)
-                                    .textInputAutocapitalization(.never)
-                                    .keyboardType(.emailAddress)
-                                    .autocorrectionDisabled(true)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .fill(Color(.secondarySystemBackground))
-                                    )
-
-                                HStack {
-                                    Button("Abbrechen") {
-                                        isEditingEmail = false
-                                        editedEmail = user.email
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(isSavingEmail)
-
-                                    Spacer()
-
-                                    Button {
-                                        Task { await saveEmail() }
-                                    } label: {
-                                        if isSavingEmail {
-                                            ProgressView().tint(.white)
-                                        } else {
-                                            Text("Speichern")
-                                        }
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(
-                                        isSavingEmail ||
-                                        editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                        editedEmail == user.email
-                                    )
-                                }
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
-                            .listRowBackground(Color.clear)
                         } else {
                             // Anzeige
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack(alignment: .center, spacing: 12) {
-                                    // Profilbild mit Menu
-                                    // In der SettingsView - Profilbild Section
+                                    // Avatar mit Asset-Fallback und Upload-Funktionalität
                                     Menu {
                                         Button {
                                             showPhotoPicker = true
@@ -158,27 +103,33 @@ struct SettingsView: View {
                                         }
                                     } label: {
                                         Group {
-                                            if profileImageService.isLoading {
+                                            if isUploadingImage {
                                                 ProgressView()
                                                     .frame(width: 46, height: 46)
                                             } else if let profileImage = profileImage {
+                                                // Hochgeladenes Bild
                                                 Image(uiImage: profileImage)
                                                     .resizable()
                                                     .aspectRatio(contentMode: .fill)
                                             } else if hasProfileImage {
+                                                // Fallback: System Icon wenn Bild existiert aber nicht geladen
                                                 Image(systemName: "person.circle.fill")
                                                     .symbolRenderingMode(.hierarchical)
                                                     .foregroundStyle(.blue)
                                                     .font(.system(size: 40))
                                             } else {
-                                                Image(systemName: "person.crop.circle.badge.plus")
-                                                    .symbolRenderingMode(.hierarchical)
-                                                    .foregroundStyle(.blue)
-                                                    .font(.system(size: 40))
+                                                // Asset "Avatar_Default" als Fallback
+                                                Image("Avatar_Default")
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
                                             }
                                         }
                                         .frame(width: 46, height: 46)
                                         .clipShape(Circle())
+                                        .overlay(
+                                            Circle()
+                                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                                        )
                                     }
 
                                     VStack(alignment: .leading, spacing: 4) {
@@ -197,13 +148,6 @@ struct SettingsView: View {
                                             isEditingName = true
                                         } label: {
                                             Label("Anzeigename bearbeiten", systemImage: "pencil")
-                                        }
-
-                                        Button {
-                                            editedEmail = user.email
-                                            isEditingEmail = true
-                                        } label: {
-                                            Label("E-Mail aktualisieren", systemImage: "envelope")
                                         }
 
                                         Button {
@@ -364,16 +308,9 @@ struct SettingsView: View {
             // Avatar URL in User-Tabelle speichern
             try await updateUserProfileWithAvatar(avatarURL)
             
-            // Cache leeren und Bild neu laden
             await MainActor.run {
-                profileImage = nil // Cache leeren
-            }
-            
-            // Kurz warten dann neu laden
-            try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-            await loadProfilePicture()
-            
-            await MainActor.run {
+                profileImage = uiImage
+                hasProfileImage = true
                 isUploadingImage = false
                 alertMessage = "✅ Profilbild erfolgreich aktualisiert"
             }
@@ -385,7 +322,7 @@ struct SettingsView: View {
             }
         }
     }
-
+    
     private func deleteProfileImage() async {
         await MainActor.run {
             isUploadingImage = true
@@ -397,7 +334,6 @@ struct SettingsView: View {
             // Avatar URL aus User-Tabelle entfernen
             try await updateUserProfileWithAvatar("")
             
-            // Cache leeren
             await MainActor.run {
                 profileImage = nil
                 hasProfileImage = false
@@ -466,45 +402,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - E-Mail speichern
-    func saveEmail() async {
-        guard let current = session.currentUser else { return }
-        let trimmed = editedEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != current.email else { return }
-
-        await MainActor.run { isSavingEmail = true }
-        do {
-            struct UpdatePayload: Encodable { let email: String }
-            _ = try await supabase
-                .from("user")
-                .update(UpdatePayload(email: trimmed))
-                .eq("id", value: current.id.uuidString)
-                .select("id, display_name, email")
-                .single()
-                .execute() as PostgrestResponse<AppUser>
-
-            let refreshed: AppUser = try await supabase
-                .from("user")
-                .select("id, display_name, email")
-                .eq("id", value: current.id.uuidString)
-                .single()
-                .execute()
-                .value
-
-            await MainActor.run {
-                session.setCurrentUser(refreshed)
-                isSavingEmail = false
-                isEditingEmail = false
-                alertMessage = "✅ E-Mail aktualisiert."
-            }
-        } catch {
-            await MainActor.run {
-                isSavingEmail = false
-                alertMessage = "❌ Konnte E-Mail nicht speichern: \(error.localizedDescription)"
-            }
-        }
-    }
-
     // MARK: - Appearance Methods
     func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
         Button {
@@ -529,10 +426,5 @@ struct SettingsView: View {
         windowScene.windows.forEach { window in
             window.overrideUserInterfaceStyle = style
         }
-    }
-
-    private func removeProfileImage() {
-        selectedProfileImageData = nil
-        alertMessage = "✅ Profilbild gelöscht."
     }
 }
