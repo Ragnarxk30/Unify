@@ -8,9 +8,6 @@ struct SettingsView: View {
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var isLoading = false
     @State private var alertMessage: String?
-    
-    // Status für Platzhalteranzeige, aber künftig an Bilddaten gekoppelt
-    @State private var hasProfileImage = true
 
     // Editing state
     @State private var isEditingName = false
@@ -134,15 +131,15 @@ struct SettingsView: View {
                             // Anzeige
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack(alignment: .center, spacing: 12) {
-                                    // Immer als Menu anzeigen, egal ob Bild vorhanden
+                                    // Avatar immer als Menu-Label: zeigt gewähltes Bild oder Asset-Platzhalter "Avatar-Default"
                                     Menu {
                                         Button {
                                             showPhotoPicker = true
                                         } label: {
                                             Label("Profilbild ändern", systemImage: "photo")
                                         }
-                                        
-                                        if selectedProfileImageData != nil || hasProfileImage {
+
+                                        if selectedProfileImageData != nil {
                                             Button(role: .destructive) {
                                                 removeProfileImage()
                                             } label: {
@@ -156,10 +153,9 @@ struct SettingsView: View {
                                                     .resizable()
                                                     .aspectRatio(contentMode: .fill)
                                             } else {
-                                                Image(systemName: hasProfileImage ? "person.circle.fill" : "person.crop.circle.badge.xmark")
-                                                    .symbolRenderingMode(.hierarchical)
-                                                    .foregroundStyle(hasProfileImage ? .blue : .red)
-                                                    .font(.system(size: 40))
+                                                Image("Avatar_Default")
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
                                             }
                                         }
                                         .frame(width: 46, height: 46)
@@ -196,8 +192,8 @@ struct SettingsView: View {
                                         } label: {
                                             Label("Profilbild ändern", systemImage: "photo")
                                         }
-                                        
-                                        if selectedProfileImageData != nil || hasProfileImage {
+
+                                        if selectedProfileImageData != nil {
                                             Button(role: .destructive) {
                                                 removeProfileImage()
                                             } label: {
@@ -287,7 +283,6 @@ struct SettingsView: View {
                     if let data = try? await newItem.loadTransferable(type: Data.self) {
                         await MainActor.run {
                             selectedProfileImageData = data
-                            hasProfileImage = data.isEmpty == false
                         }
                     }
                 }
@@ -400,10 +395,9 @@ struct SettingsView: View {
             window.overrideUserInterfaceStyle = style
         }
     }
-    
+
     private func removeProfileImage() {
         selectedProfileImageData = nil
-        hasProfileImage = false
         alertMessage = "✅ Profilbild gelöscht."
     }
 }
