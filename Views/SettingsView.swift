@@ -530,4 +530,9 @@ struct SettingsView: View {
             window.overrideUserInterfaceStyle = style
         }
     }
+
+    private func removeProfileImage() {
+        selectedProfileImageData = nil
+        alertMessage = "✅ Profilbild gelöscht."
+    }
 }
