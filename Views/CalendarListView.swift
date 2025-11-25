@@ -16,6 +16,12 @@ struct CalendarListView: View {
 
     // Frame des Filter-Buttons (global)
     @State private var filterButtonFrame: CGRect = .zero
+    // Kalender-State
+        @State private var selectedDate = Date()
+        @State private var displayMonth: Date = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
+
+        private let calendar = Calendar.current
+
 
     private let sideInset: CGFloat = 20
 
@@ -133,12 +139,12 @@ struct CalendarListView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal, sideInset)
             .padding(.top, 15)
-
+            
             Group {
                 if isLoading {
                     ProgressView("Lade Termine...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+                    
                 } else if let errorMessage {
                     VStack(spacing: 12) {
                         Text("Fehler beim Laden der Termine")
@@ -152,62 +158,241 @@ struct CalendarListView: View {
                         .buttonStyle(.bordered)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+                    
                 } else {
                     if mode == .list {
                         listContent
                     } else {
-                        calendarPlaceholderView
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        calendarContent
                     }
                 }
             }
         }
     }
 
-    private var listContent: some View {
-        List {
-            if filteredEvents.isEmpty {
-                Section {
-                    emptyStateView
-                        .frame(maxWidth: .infinity, alignment: .center)
+private var calendarContent: some View {
+ScrollView {
+    VStack(spacing: 16) {
+        calendarHeader
+        weekdayHeader
+        monthGrid
+
+        Divider()
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text(dateHeadline(for: selectedDate))
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            if selectedDateEvents.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar.badge.exclamationmark")
+                        .foregroundStyle(.secondary)
+                    Text("Keine Termine an diesem Tag")
+                        .foregroundStyle(.secondary)
                 }
-                .listRowBackground(Color.clear)
+                .padding(.vertical, 4)
             } else {
-                Section {
-                    ForEach(filteredEvents) { event in
+                VStack(spacing: 12) {
+                    ForEach(selectedDateEvents) { event in
                         EventCard(event: event)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 8,
-                                    leading: sideInset,
-                                    bottom: 8,
-                                    trailing: sideInset
-                                )
-                            )
-                            .listRowBackground(Color.clear)
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    Task { await deleteEvent(event) }
-                                } label: {
-                                    Label("Löschen", systemImage: "trash")
-                                }
-
-                                Button {
-                                    editingEvent = event
-                                } label: {
-                                    Label("Bearbeiten", systemImage: "pencil")
-                                }
-                            }
                     }
                 }
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(.horizontal, sideInset)
+    .padding(.vertical, 12)
+}
+.background(Color(.systemGroupedBackground))
+}
+
+private var calendarHeader: some View {
+HStack {
+    Button {
+        displayMonth = calendar.date(byAdding: .month, value: -1, to: displayMonth) ?? displayMonth
+    } label: {
+        Image(systemName: "chevron.left")
+            .padding(8)
+            .background(Circle().fill(Color(.systemGray6)))
     }
 
+    Spacer()
+
+    Text(monthYearString(from: displayMonth))
+        .font(.headline)
+
+    Spacer()
+
+    Button {
+        displayMonth = calendar.date(byAdding: .month, value: 1, to: displayMonth) ?? displayMonth
+    } label: {
+        Image(systemName: "chevron.right")
+            .padding(8)
+            .background(Circle().fill(Color(.systemGray6)))
+    }
+}
+}
+
+private var weekdayHeader: some View {
+let symbols = calendar.shortStandaloneWeekdaySymbols
+return HStack {
+    ForEach(symbols, id: \.self) { symbol in
+        Text(symbol)
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity)
+    }
+}
+}
+
+private var monthGrid: some View {
+let days = makeMonthDays()
+return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 8) {
+    ForEach(days, id: \.self) { day in
+        if let day = day {
+            dayCell(for: day)
+        } else {
+            Color.clear.frame(height: 36)
+        }
+    }
+}
+.padding(.vertical, 8)
+}
+
+private func dayCell(for date: Date) -> some View {
+let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+let isToday = calendar.isDateInToday(date)
+let count = eventCount(for: date)
+
+return Button {
+    selectedDate = date
+} label: {
+    VStack(spacing: 4) {
+        Text("\(calendar.component(.day, from: date))")
+            .font(.body)
+            .frame(maxWidth: .infinity)
+            .padding(6)
+            .background(
+                ZStack {
+                    if isSelected {
+                        Circle().fill(Color.accentColor.opacity(0.9))
+                    } else if isToday {
+                        Circle().stroke(Color.accentColor, lineWidth: 2)
+                    }
+                }
+            )
+            .foregroundColor(isSelected ? .white : .primary)
+
+        if count > 0 {
+            HStack(spacing: 3) {
+                ForEach(0..<min(count, 3), id: \.self) { _ in
+                    Circle()
+                        .fill(isSelected ? Color.white.opacity(0.9) : Color.accentColor)
+                        .frame(width: 6, height: 6)
+                }
+            }
+        } else {
+            Color.clear.frame(height: 6)
+        }
+    }
+}
+.buttonStyle(.plain)
+}
+
+private func monthYearString(from date: Date) -> String {
+let formatter = DateFormatter()
+formatter.locale = Locale(identifier: "de_DE")
+formatter.dateFormat = "LLLL yyyy"
+return formatter.string(from: date).capitalized
+}
+
+private func dateHeadline(for date: Date) -> String {
+let formatter = DateFormatter()
+formatter.locale = Locale(identifier: "de_DE")
+formatter.dateFormat = "EEEE, d. MMMM"
+return formatter.string(from: date).capitalized
+}
+
+    private func makeMonthDays() -> [Date?] {
+        // Monat & erster Wochentag bestimmen
+        guard let monthInterval = calendar.dateInterval(of: .month, for: displayMonth),
+              let firstWeekday = calendar.dateComponents([(.weekday)], from: monthInterval.start).weekday,
+              let days = calendar.range(of: .day, in: .month, for: displayMonth)
+        else {
+            return []
+        }
+
+        // Wie viele leere Kästchen vor dem 1. des Monats?
+        let prefixCount = (firstWeekday - calendar.firstWeekday + 7) % 7
+        let prefix = Array(repeating: nil as Date?, count: prefixCount)
+
+        // Alle Tage des Monats als Date
+        let monthDays: [Date?] = days.compactMap { day -> Date? in
+            calendar.date(byAdding: .day, value: day - 1, to: monthInterval.start)
+        }
+
+        return prefix + monthDays
+    }
+
+private func eventCount(for date: Date) -> Int {
+eventsByDay[calendar.startOfDay(for: date)]?.count ?? 0
+}
+
+private var eventsByDay: [Date: [Event]] {
+Dictionary(grouping: filteredEvents) { event in
+    calendar.startOfDay(for: event.starts_at)
+}
+}
+
+    private var selectedDateEvents: [Event] {
+        (eventsByDay[calendar.startOfDay(for: selectedDate)] ?? [])
+            .sorted { $0.starts_at < $1.starts_at }
+    }
+        private var listContent: some View {
+            List {
+                if filteredEvents.isEmpty {
+                    Section {
+                        emptyStateView
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .listRowBackground(Color.clear)
+                } else {
+                    Section {
+                        ForEach(filteredEvents) { event in
+                            EventCard(event: event)
+                                .listRowInsets(
+                                    EdgeInsets(
+                                        top: 8,
+                                        leading: sideInset,
+                                        bottom: 8,
+                                        trailing: sideInset
+                                    )
+                                )
+                                .listRowBackground(Color.clear)
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        Task { await deleteEvent(event) }
+                                    } label: {
+                                        Label("Löschen", systemImage: "trash")
+                                    }
+                                    
+                                    Button {
+                                        editingEvent = event
+                                    } label: {
+                                        Label("Bearbeiten", systemImage: "pencil")
+                                    }
+                                }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color(.systemGroupedBackground))
+        }
+    
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "calendar.badge.exclamationmark")
@@ -223,17 +408,7 @@ struct CalendarListView: View {
         .padding(.vertical, 40)
     }
 
-    private var calendarPlaceholderView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "calendar")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("Kalender-Ansicht kommt später")
-                .foregroundStyle(.secondary)
-        }
-        .padding(.top, 40)
-        .padding(.horizontal, sideInset)
-    }
+    
 
     // MARK: - Laden & Löschen
 
