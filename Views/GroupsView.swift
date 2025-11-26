@@ -6,8 +6,8 @@ struct GroupsView: View {
     @State private var showCreate = false
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @ObservedObject private var unreadService = UnreadMessagesService.shared
     
-    // ✅ Dein GroupRepository verwenden
     private let groupRepo: GroupRepository = SupabaseGroupRepository()
 
     var body: some View {
@@ -48,8 +48,11 @@ struct GroupsView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         ForEach(groups) { group in
-                            GroupRow(group: group)
-                                .buttonStyle(.plain)
+                            GroupRow(
+                                group: group,
+                                unreadCount: unreadService.unreadCounts[group.id] ?? 0
+                            )
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -66,13 +69,17 @@ struct GroupsView: View {
         }
         .sheet(isPresented: $showCreate) {
             CreateGroupSheet(onGroupCreated: {
-                // 👈 NEU: Callback wenn Gruppe erstellt wurde
                 await loadGroups()
             })
             .presentationDetents([.medium])
         }
         .task {
             await loadGroups()
+        }
+        .onAppear {
+            Task {
+                await refreshUnreadCounts()
+            }
         }
     }
 
@@ -83,9 +90,11 @@ struct GroupsView: View {
         errorMessage = nil
         
         do {
-            // ✅ JETZT: fetchGroups verwenden der alle Mitgliedsgruppen lädt
             groups = try await groupRepo.fetchGroups()
             print("✅ \(groups.count) Gruppen geladen")
+            
+            // Ungelesene Nachrichten laden
+            await refreshUnreadCounts()
         } catch {
             errorMessage = error.localizedDescription
             print("❌ Fehler beim Laden der Gruppen: \(error)")
@@ -93,10 +102,26 @@ struct GroupsView: View {
         
         isLoading = false
     }
+    
+    // MARK: - Ungelesene Nachrichten aktualisieren
+    @MainActor
+    private func refreshUnreadCounts() async {
+        guard !groups.isEmpty else { return }
+        
+        let groupIds = groups.map { $0.id }
+        
+        do {
+            let counts = try await UnreadMessagesService.shared.refreshAllUnreadCounts(for: groupIds)
+            print("✅ Ungelesene Nachrichten aktualisiert: \(counts)")
+        } catch {
+            print("⚠️ Fehler beim Laden der ungelesenen Nachrichten: \(error)")
+        }
+    }
 }
 
 private struct GroupRow: View {
     let group: AppGroup
+    let unreadCount: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -118,13 +143,28 @@ private struct GroupRow: View {
                 }
                 .buttonStyle(.bordered)
 
-                NavigationLink {
-                    GroupChatScreen(group: group)
-                } label: {
-                    Label("Chat", systemImage: "text.bubble")
-                        .frame(maxWidth: .infinity)
+                // 👈 NEU: Badge für ungelesene Nachrichten
+                ZStack(alignment: .topTrailing) {
+                    NavigationLink {
+                        GroupChatScreen(group: group)
+                    } label: {
+                        Label("Chat", systemImage: "text.bubble")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    if unreadCount > 0 {
+                        Text("\(unreadCount)")
+                            .font(.caption2)
+                            .bold()
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red)
+                            .clipShape(Capsule())
+                            .offset(x: 4, y: -4)
+                    }
                 }
-                .buttonStyle(.bordered)
             }
         }
         .cardStyle()
@@ -139,7 +179,6 @@ private struct CreateGroupSheet: View {
     @State private var successMessage: String?
     @State private var shouldAutoDismiss = false
 
-    // Eine Zeile pro Einladung (E-Mail + Rolle)
     private struct InviteRow: Identifiable {
         let id = UUID()
         var email: String = ""
@@ -152,10 +191,8 @@ private struct CreateGroupSheet: View {
 
     @State private var invites: [InviteRow] = [InviteRow()]
     
-    // 👈 NEU: Direkter Zugriff auf Repository
     private let groupRepo: GroupRepository = SupabaseGroupRepository()
     
-    // 👈 NEU: Callback für erfolgreiche Erstellung
     let onGroupCreated: () async -> Void
 
     var body: some View {
@@ -169,14 +206,12 @@ private struct CreateGroupSheet: View {
                 }
             }
 
-            // Gruppenname
             VStack(alignment: .leading, spacing: 8) {
                 Text("Gruppenname").font(.headline)
                 TextField("z.B. Familiengruppe", text: $name)
                     .textFieldStyle(.roundedBorder)
             }
 
-            // Einzuladende Benutzer
             VStack(alignment: .leading, spacing: 8) {
                 Text("Benutzer einladen").font(.headline)
 
@@ -205,7 +240,6 @@ private struct CreateGroupSheet: View {
                 .buttonStyle(.borderless)
             }
 
-            // 👈 FEHLER ODER ERFOLG ANZEIGEN
             if let errorMessage = errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
@@ -243,7 +277,6 @@ private struct CreateGroupSheet: View {
             .padding(.top, 8)
         }
         .padding(20)
-        // 👈 AUTO-DISMISS BEI ERFOLG
         .onChange(of: shouldAutoDismiss) { oldValue, newValue in
             if newValue {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -264,10 +297,7 @@ private struct CreateGroupSheet: View {
         shouldAutoDismiss = false
 
         do {
-            print("🔴 DIREKTER AUFRUF VOR groupRepo.create")
-            // 👈 NEU: Direkter Aufruf statt über Closure
             try await groupRepo.create(name: name, invitedUsers: invitedUsers)
-            print("🔴 DIREKTER AUFRUF NACH groupRepo.create")
             
             await MainActor.run {
                 successMessage = "✅ Gruppe '\(name)' wurde erfolgreich erstellt!"
@@ -275,11 +305,9 @@ private struct CreateGroupSheet: View {
                 shouldAutoDismiss = true
             }
             
-            // 👈 NEU: Gruppen im Hintergrund neu laden
             await onGroupCreated()
             
         } catch {
-            print("🔴 DIREKTER AUFRUF IM CATCH: \(error)")
             await MainActor.run {
                 if let groupError = error as? GroupError {
                     switch groupError {

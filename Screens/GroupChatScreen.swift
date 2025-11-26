@@ -1,10 +1,11 @@
 import SwiftUI
-//
+
 struct GroupChatScreen: View {
     let group: AppGroup
     @State private var showAddEvent = false
     @State private var showSettings = false
     @State private var currentGroup: AppGroup
+    @State private var hasMarkedAsRead = false
 
     init(group: AppGroup) {
         self.group = group
@@ -16,7 +17,6 @@ struct GroupChatScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
             .toolbar {
-                // Antippbarer Titel in der Mitte
                 ToolbarItem(placement: .principal) {
                     Button {
                         showSettings = true
@@ -32,7 +32,7 @@ struct GroupChatScreen: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Gruppeneinstellungen Ã¶ffnen")
+                    .accessibilityLabel("Gruppeneinstellungen öffnen")
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -50,10 +50,25 @@ struct GroupChatScreen: View {
             }
             .sheet(isPresented: $showSettings) {
                 GroupSettingsView(group: currentGroup) { updated in
-                    // Titel aktualisieren, damit der Button/Chat-Header den neuen Namen zeigt
                     currentGroup = updated
                 }
                 .presentationDetents([.medium, .large])
             }
+            .task {
+                await markChatAsRead()
+            }
+    }
+    
+    @MainActor
+    private func markChatAsRead() async {
+        guard !hasMarkedAsRead else { return }
+        
+        do {
+            try await UnreadMessagesService.shared.markAsRead(groupId: group.id)
+            hasMarkedAsRead = true
+            print("✅ [GroupChatScreen] Chat als gelesen markiert")
+        } catch {
+            print("⚠️ [GroupChatScreen] Fehler beim Markieren: \(error)")
+        }
     }
 }

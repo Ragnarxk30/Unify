@@ -6,9 +6,16 @@ import Combine
 @MainActor
 final class ProfileImageService: ObservableObject {
     
-    // MARK: - Published Properties (für ObservableObject)
+    // MARK: - Singleton für globalen Cache
+    static let shared = ProfileImageService()
+    
+    // MARK: - Published Properties
     @Published var isLoading = false
     @Published var errorMessage: String?
+    
+    // MARK: - Cache Properties
+    private let imageCache = NSCache<NSString, UIImage>()
+    private var loadingTasks: [UUID: Task<UIImage?, Error>] = [:]
     
     // MARK: - Private Properties
     private let storage = supabase.storage
@@ -17,9 +24,66 @@ final class ProfileImageService: ObservableObject {
     
     init(auth: AuthRepository = SupabaseAuthRepository()) {
         self.auth = auth
+        // Cache konfigurieren
+        imageCache.countLimit = 100 // Max 100 Bilder im Cache
+        imageCache.totalCostLimit = 50 * 1024 * 1024 // 50MB Speicherlimit
     }
     
-    // MARK: - Upload/Replace Profilbild (immer gleicher Name)
+    // MARK: - Cached Image Loading
+    func getCachedProfileImage(for userId: UUID) async -> UIImage? {
+        // Prüfe Cache zuerst
+        let cacheKey = userId.uuidString as NSString
+        if let cachedImage = imageCache.object(forKey: cacheKey) {
+            print("✅ Profilbild aus Cache geladen für User: \(userId)")
+            return cachedImage
+        }
+        
+        // Vermeide doppelte Downloads
+        if let existingTask = loadingTasks[userId] {
+            return try? await existingTask.value
+        }
+        
+        // Starte Download-Task
+        let task = Task<UIImage?, Error> {
+            defer { loadingTasks.removeValue(forKey: userId) }
+            
+            do {
+                let imageData = try await downloadProfilePicture(for: userId)
+                guard let image = UIImage(data: imageData) else {
+                    print("❌ Konnte Bilddaten nicht in UIImage konvertieren für User: \(userId)")
+                    return nil
+                }
+                
+                // In Cache speichern
+                imageCache.setObject(image, forKey: cacheKey)
+                print("✅ Profilbild heruntergeladen und gecached für User: \(userId)")
+                return image
+                
+            } catch {
+                print("❌ Fehler beim Laden des Profilbilds für \(userId): \(error)")
+                return nil
+            }
+        }
+        
+        loadingTasks[userId] = task
+        return try? await task.value
+    }
+    
+    // MARK: - Cache Management
+    func clearCache() {
+        imageCache.removeAllObjects()
+        loadingTasks.removeAll()
+        print("🗑️ Profilbild-Cache komplett geleert")
+    }
+    
+    func clearCache(for userId: UUID) {
+        let cacheKey = userId.uuidString as NSString
+        imageCache.removeObject(forKey: cacheKey)
+        loadingTasks.removeValue(forKey: userId)
+        print("🗑️ Profilbild-Cache geleert für User: \(userId)")
+    }
+    
+    // MARK: - Upload/Replace Profilbild
     func uploadProfilePicture(_ image: UIImage, fileExtension: String = "jpg") async throws -> String {
         await MainActor.run {
             isLoading = true
@@ -41,8 +105,7 @@ final class ProfileImageService: ObservableObject {
                 throw NSError(domain: "ImageError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Bild konnte nicht konvertiert werden"])
             }
             
-            // 👈 IMMER GLEICHER NAME: Nur die User-ID
-            let fileName = userId.uuidString.lowercased() // 👈 lowercase für Konsistenz
+            let fileName = userId.uuidString.lowercased()
             
             print("📤 Upload Profilbild: \(fileName) als \(contentType)")
             
@@ -61,6 +124,9 @@ final class ProfileImageService: ObservableObject {
                 try await storage
                     .from(bucketName)
                     .remove(paths: [fileName])
+                
+                // Cache ebenfalls löschen
+                clearCache(for: userId)
             }
             
             // Neues Bild hochladen
@@ -72,20 +138,21 @@ final class ProfileImageService: ObservableObject {
                     options: FileOptions(
                         cacheControl: "3600",
                         contentType: contentType,
-                        upsert: true // 👈 Überschreibt falls vorhanden
+                        upsert: true
                     )
                 )
             
-            // Public URL holen
+            // Neues Bild in Cache speichern
+            imageCache.setObject(image, forKey: fileName as NSString)
+            
             let publicURL = try storage
                 .from(bucketName)
                 .getPublicURL(path: fileName)
             
-            // Cache-Busting URL mit Timestamp
             let timestamp = Int(Date().timeIntervalSince1970)
             let cacheBustedURL = "\(publicURL.absoluteString)?t=\(timestamp)"
             
-            print("✅ Profilbild erfolgreich hochgeladen: \(cacheBustedURL)")
+            print("✅ Profilbild erfolgreich hochgeladen und gecached: \(cacheBustedURL)")
             
             return cacheBustedURL
             
