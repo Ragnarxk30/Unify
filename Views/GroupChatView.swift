@@ -264,6 +264,16 @@ struct GroupChatView: View {
                         await markChatAsRead()
                     }
         }
+        // ✅ CLEANUP BEI APP-HINTERGRUND HINZUFÜGEN
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            ChatEndpoints.cleanupAllSubscriptions()
+            audioService.cleanup()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await startRealtimeConnection()
+            }
+        }
         .alert(
             "Berechtigung benötigt",
             isPresented: Binding(
@@ -717,47 +727,33 @@ private struct ChatBubbleView: View {
     @ObservedObject var audioService: AudioRecorderService
     let isSelected: Bool
     
-    // 👈 GEMEINSAMEN SERVICE VERWENDEN - KEINE NEUE INSTANZ!
     @State private var profileImage: UIImage?
     @State private var isLoadingImage = false
     
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
-                ZStack {
-                    Group {
-                        if isLoadingImage {
-                            ProgressView()
-                                .frame(width: 36, height: 36)
-                        } else if let profileImage = profileImage {
-                            Image(uiImage: profileImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } else {
-                            Image("Avatar_Default")
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        }
-                    }
-                    .frame(width: 36, height: 36)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                    )
-                    
-                    if isSelected {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 16, height: 16)
-                            .overlay(
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white)
-                            )
-                            .offset(x: 12, y: 12)
+                // Profilbild OHNE Checkmark
+                Group {
+                    if isLoadingImage {
+                        ProgressView()
+                            .frame(width: 36, height: 36)
+                    } else if let profileImage = profileImage {
+                        Image(uiImage: profileImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image("Avatar_Default")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
                     }
                 }
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
                 .onAppear {
                     if !isCurrentUser {
                         Task {
@@ -772,40 +768,27 @@ private struct ChatBubbleView: View {
                 Spacer()
                 messageContent
 
-                ZStack {
-                    Group {
-                        if isLoadingImage {
-                            ProgressView()
-                                .frame(width: 36, height: 36)
-                        } else if let profileImage = profileImage {
-                            Image(uiImage: profileImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } else {
-                            Image("Avatar_Default")
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        }
-                    }
-                    .frame(width: 36, height: 36)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                    )
-                    
-                    if isSelected {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 16, height: 16)
-                            .overlay(
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white)
-                            )
-                            .offset(x: 12, y: 12)
+                // Profilbild OHNE Checkmark
+                Group {
+                    if isLoadingImage {
+                        ProgressView()
+                            .frame(width: 36, height: 36)
+                    } else if let profileImage = profileImage {
+                        Image(uiImage: profileImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image("Avatar_Default")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
                     }
                 }
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
                 .onAppear {
                     if isCurrentUser {
                         Task {
@@ -819,13 +802,11 @@ private struct ChatBubbleView: View {
         .cornerRadius(8)
     }
     
-    // 👈 PROFILBILD MIT CACHE LADEN
     private func loadProfileImage(for userId: UUID) async {
         await MainActor.run {
             isLoadingImage = true
         }
         
-        // Verwende den shared Service mit Cache
         let image = await ProfileImageService.shared.getCachedProfileImage(for: userId)
         
         await MainActor.run {
@@ -834,7 +815,6 @@ private struct ChatBubbleView: View {
         }
     }
     
-    // 👈 EIGENES PROFILBILD MIT CACHE LADEN
     private func loadOwnProfileImage() async {
         await MainActor.run {
             isLoadingImage = true
@@ -865,20 +845,39 @@ private struct ChatBubbleView: View {
                     .foregroundColor(.secondary)
             }
 
-            if message.isVoiceMessage {
-                VoiceMessageBubble(message: message, audioService: audioService)
-            } else {
-                Text(message.content)
-                    .font(.body)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(isCurrentUser ? Color.blue : Color(.systemGray5))
-                    .foregroundColor(isCurrentUser ? .white : .primary)
-                    .cornerRadius(18)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(isCurrentUser ? Color.blue : Color(.systemGray4), lineWidth: 1)
-                    )
+            // 👈 ZStack mit Checkmark auf der Nachricht
+            ZStack(alignment: isCurrentUser ? .bottomLeading : .bottomTrailing) {
+                if message.isVoiceMessage {
+                    VoiceMessageBubble(message: message, audioService: audioService)
+                } else {
+                    Text(message.content)
+                        .font(.body)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(isCurrentUser ? Color.blue : Color(.systemGray5))
+                        .foregroundColor(isCurrentUser ? .white : .primary)
+                        .cornerRadius(18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(isCurrentUser ? Color.blue : Color(.systemGray4), lineWidth: 1)
+                        )
+                }
+                
+                // 👈 CHECKMARK UNTEN AUF DER NACHRICHT (wie vorher)
+                if isSelected {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 16, height: 16)
+                        .overlay(
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white)
+                        )
+                        .offset(
+                            x: isCurrentUser ? 4 : -4,
+                            y: 4
+                        )
+                }
             }
 
             Text(timeString(from: message.sent_at))

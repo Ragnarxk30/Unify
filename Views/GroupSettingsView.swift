@@ -23,6 +23,9 @@ struct GroupSettingsView: View {
     @State private var currentUserId: UUID?
     @State private var showLeaveConfirm = false
     @State private var showOwnerTransferSheet = false
+    
+    // 👈 NEU: Profilbilder Cache
+    @State private var memberProfileImages: [UUID: UIImage] = [:]
 
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
@@ -42,11 +45,9 @@ struct GroupSettingsView: View {
             Form {
                 Section("Gruppenname") {
                     if isOwner || isAdmin {
-                        // Owner/Admin: Können bearbeiten
                         TextField("Gruppenname", text: $name)
                             .disabled(isSaving)
                     } else {
-                        // Normale User: Nur Anzeige
                         HStack {
                             Text(group.name)
                                 .foregroundColor(.secondary)
@@ -68,15 +69,24 @@ struct GroupSettingsView: View {
                     } else {
                         ForEach(members) { member in
                             HStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(0.2))
-                                    .frame(width: 36, height: 36)
-                                    .overlay(
-                                        Text(member.memberUser.initials)
-                                            .font(.caption)
-                                            .fontWeight(.medium)
-                                            .foregroundColor(.blue)
-                                    )
+                                // 👈 NEU: Profilbild mit Fallback
+                                Group {
+                                    if let profileImage = memberProfileImages[member.user_id] {
+                                        Image(uiImage: profileImage)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    } else {
+                                        Image("Avatar_Default")
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    }
+                                }
+                                .frame(width: 36, height: 36)
+                                .clipShape(Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                                )
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(member.memberUser.display_name)
@@ -112,7 +122,6 @@ struct GroupSettingsView: View {
                     }
                 }
 
-                // 👈 SECTION: Gruppe verlassen
                 Section {
                     Button(role: .destructive) {
                         if isOwner {
@@ -280,17 +289,26 @@ struct GroupSettingsView: View {
             await MainActor.run {
                 members = fetchedMembers
                 isLoadingMembers = false
-                print("🎯 IN VIEW: \(members.count) Mitglieder")
-                for member in members {
-                    print("   👤 \(member.memberUser.display_name) - \(member.role.displayName) - UserID: \(member.user_id)")
-                }
-                print("🎯 AKTUELLE GROUP OWNER ID: \(group.owner_id)")
             }
+            
+            // 👈 NEU: Profilbilder für alle Mitglieder laden
+            await loadMemberProfileImages()
+            
         } catch {
             await MainActor.run {
                 isLoadingMembers = false
                 setError("Mitglieder konnten nicht geladen werden: \(error.localizedDescription)")
-                print("❌ FEHLER beim Laden: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    // 👈 NEU: Profilbilder laden
+    private func loadMemberProfileImages() async {
+        for member in members {
+            if let image = await ProfileImageService.shared.getCachedProfileImage(for: member.user_id) {
+                await MainActor.run {
+                    memberProfileImages[member.user_id] = image
+                }
             }
         }
     }
@@ -301,6 +319,7 @@ struct GroupSettingsView: View {
                 try await groupRepo.removeMember(groupId: group.id, userId: member.user_id)
                 await MainActor.run {
                     members.removeAll { $0.user_id == member.user_id }
+                    memberProfileImages.removeValue(forKey: member.user_id)
                     memberToRemove = nil
                 }
             } catch {
@@ -353,7 +372,6 @@ struct GroupSettingsView: View {
         }
     }
     
-    // 👈 FUNKTION: Gruppe verlassen (für Admin/normale User)
     private func leaveGroup() async {
         await MainActor.run {
             errorMessage = nil
@@ -376,7 +394,6 @@ struct GroupSettingsView: View {
     }
 }
 
-// ✅ Extension für Initials 
 extension AppUser {
     var initials: String {
         let comps = display_name.split(separator: " ")
@@ -386,7 +403,6 @@ extension AppUser {
     }
 }
 
-// ✅ TransferOwnershipView
 struct TransferOwnershipView: View {
     @Environment(\.dismiss) private var dismiss
     let group: AppGroup
@@ -397,9 +413,11 @@ struct TransferOwnershipView: View {
     @State private var isTransferring = false
     @State private var errorMessage: String?
     
+    // 👈 NEU: Profilbilder
+    @State private var memberProfileImages: [UUID: UIImage] = [:]
+    
     private let groupRepo = SupabaseGroupRepository()
     
-    // Verfügbare Mitglieder (ohne aktuellen Owner)
     var availableMembers: [GroupMember] {
         members.filter { $0.user_id != group.owner_id }
     }
@@ -414,15 +432,24 @@ struct TransferOwnershipView: View {
                     } else {
                         ForEach(availableMembers) { member in
                             HStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(0.2))
-                                    .frame(width: 36, height: 36)
-                                    .overlay(
-                                        Text(member.memberUser.initials)
-                                            .font(.caption)
-                                            .fontWeight(.medium)
-                                            .foregroundColor(.blue)
-                                    )
+                                // 👈 NEU: Profilbild
+                                Group {
+                                    if let profileImage = memberProfileImages[member.user_id] {
+                                        Image(uiImage: profileImage)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    } else {
+                                        Image("Avatar_Default")
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    }
+                                }
+                                .frame(width: 36, height: 36)
+                                .clipShape(Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                                )
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(member.memberUser.display_name)
@@ -474,6 +501,21 @@ struct TransferOwnershipView: View {
                     .disabled(selectedNewOwner == nil || isTransferring)
                 }
             }
+            // 👈 NEU: Profilbilder laden
+            .task {
+                await loadMemberProfileImages()
+            }
+        }
+    }
+    
+    // 👈 NEU: Profilbilder laden
+    private func loadMemberProfileImages() async {
+        for member in availableMembers {
+            if let image = await ProfileImageService.shared.getCachedProfileImage(for: member.user_id) {
+                await MainActor.run {
+                    memberProfileImages[member.user_id] = image
+                }
+            }
         }
     }
     
@@ -486,10 +528,7 @@ struct TransferOwnershipView: View {
         }
         
         do {
-            // 1. Besitzer transferieren
             try await groupRepo.transferOwnership(groupId: group.id, newOwnerId: newOwnerId)
-            
-            // 2. Dann sich selbst aus der Gruppe entfernen
             try await groupRepo.leaveGroup(groupId: group.id)
             
             await MainActor.run {
@@ -516,7 +555,7 @@ struct AddMemberView: View {
     @State private var isAdding = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
-    @State private var shouldAutoDismiss = false  // 👈 NEU: Steuert Auto-Dismiss
+    @State private var shouldAutoDismiss = false
     
     private let groupRepo = SupabaseGroupRepository()
     
@@ -582,7 +621,6 @@ struct AddMemberView: View {
                         .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
                 }
             }
-            // 👈 NUR bei Erfolg schließen
             .onChange(of: shouldAutoDismiss) { oldValue, newValue in
                 if newValue {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -599,7 +637,7 @@ struct AddMemberView: View {
         await MainActor.run {
             errorMessage = nil
             successMessage = nil
-            shouldAutoDismiss = false  // 👈 Reset
+            shouldAutoDismiss = false
             isAdding = true
         }
         
@@ -609,7 +647,7 @@ struct AddMemberView: View {
             await MainActor.run {
                 successMessage = "✅ \(trimmedEmail) wurde als \(selectedRole.displayName) eingeladen!"
                 isAdding = false
-                shouldAutoDismiss = true  // 👈 NUR HIER Auto-Dismiss aktivieren
+                shouldAutoDismiss = true
                 
                 let tempMember = GroupMember(
                     user_id: UUID(),
@@ -629,7 +667,7 @@ struct AddMemberView: View {
             await MainActor.run {
                 errorMessage = "❌ Fehler: \(error.localizedDescription)"
                 isAdding = false
-                shouldAutoDismiss = false  // 👈 Bei Fehler KEIN Auto-Dismiss
+                shouldAutoDismiss = false
             }
         }
     }

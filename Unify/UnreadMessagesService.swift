@@ -88,8 +88,11 @@ class UnreadMessagesService: ObservableObject {
     
     // MARK: - 🔥 REALTIME: Neue Nachrichten live zählen
     func startRealtimeTracking(for groupId: UUID) async throws {
-        // Wenn schon aktiv, nicht nochmal starten
-        guard realtimeChannels[groupId] == nil else { return }
+        // 👈 Wenn schon aktiv, nicht nochmal starten (wichtig!)
+        guard realtimeChannels[groupId] == nil else {
+            print("ℹ️ [UnreadService] Realtime bereits aktiv für Gruppe: \(groupId)")
+            return
+        }
         
         let userId = try await auth.currentUserId()
         
@@ -145,7 +148,7 @@ class UnreadMessagesService: ObservableObject {
         }
     }
     
-    // MARK: - Realtime stoppen
+    // MARK: - Realtime stoppen (nur für eine Gruppe)
     func stopRealtimeTracking(for groupId: UUID) {
         Task {
             if let channel = realtimeChannels[groupId] {
@@ -178,19 +181,43 @@ class UnreadMessagesService: ObservableObject {
         print("✅ [UnreadService] Als gelesen markiert: Gruppe \(groupId)")
     }
     
-    // MARK: - Alle Counts aktualisieren
+    // MARK: - Alle Counts aktualisieren (Smart!)
     func refreshAllUnreadCounts(for groupIds: [UUID]) async throws {
         for groupId in groupIds {
+            // Counts aktualisieren
             _ = try? await getUnreadCount(for: groupId)
-            // Realtime starten für jede Gruppe
-            try? await startRealtimeTracking(for: groupId)
+            
+            // 👈 Realtime nur starten wenn noch nicht aktiv!
+            if realtimeChannels[groupId] == nil {
+                try? await startRealtimeTracking(for: groupId)
+            } else {
+                print("ℹ️ [UnreadService] Realtime läuft bereits für Gruppe: \(groupId)")
+            }
         }
     }
     
-    // MARK: - Cleanup
+    // MARK: - 👈 Prüfen ob Realtime für Gruppe aktiv ist
+    func isRealtimeActive(for groupId: UUID) -> Bool {
+        return realtimeChannels[groupId] != nil
+    }
+    
+    // MARK: - 👈 Anzahl aktiver Realtime-Connections
+    var activeRealtimeCount: Int {
+        return realtimeChannels.count
+    }
+    
+    // MARK: - Cleanup (nur bei App-Beendigung oder Logout!)
     func cleanup() {
+        print("⚠️ [UnreadService] Cleanup - Stoppe alle \(realtimeChannels.count) Realtime-Connections")
         for (groupId, _) in realtimeChannels {
             stopRealtimeTracking(for: groupId)
         }
+    }
+    
+    // MARK: - 👈 NEU: Cleanup nur für spezifische Gruppe (wenn User Gruppe verlässt)
+    func cleanupGroup(_ groupId: UUID) {
+        print("🧹 [UnreadService] Cleanup für einzelne Gruppe: \(groupId)")
+        stopRealtimeTracking(for: groupId)
+        unreadCounts.removeValue(forKey: groupId)
     }
 }

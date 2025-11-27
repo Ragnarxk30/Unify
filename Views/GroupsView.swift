@@ -4,15 +4,19 @@ import Supabase
 struct GroupsView: View {
     @State private var groups: [AppGroup] = []
     @State private var showCreate = false
-    @State private var isLoading = true
+    @State private var isLoading = false
+    @State private var isRefreshing = false
     @State private var errorMessage: String?
-    @ObservedObject private var unreadService = UnreadMessagesService.shared
+    
+    // 👈 StateObject für automatische UI-Updates
+    @StateObject private var unreadService = UnreadMessagesService.shared
     
     private let groupRepo: GroupRepository = SupabaseGroupRepository()
 
     var body: some View {
         Group {
-            if isLoading {
+            // 👈 Nur beim ersten Laden (wenn keine Gruppen) Fullscreen Loader
+            if isLoading && groups.isEmpty {
                 ProgressView("Lade Gruppen...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage = errorMessage {
@@ -30,7 +34,7 @@ struct GroupsView: View {
                     .buttonStyle(.bordered)
                 }
                 .padding()
-            } else if groups.isEmpty {
+            } else if groups.isEmpty && !isLoading {
                 VStack {
                     Image(systemName: "person.3")
                         .font(.system(size: 50))
@@ -45,18 +49,29 @@ struct GroupsView: View {
                 }
                 .padding()
             } else {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        ForEach(groups) { group in
-                            GroupRow(
-                                group: group,
-                                unreadCount: unreadService.unreadCounts[group.id] ?? 0
-                            )
-                            .buttonStyle(.plain)
+                // 👈 Gruppen werden SOFORT angezeigt, auch beim Refresh
+                ZStack(alignment: .top) {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            ForEach(groups) { group in
+                                GroupRow(
+                                    group: group,
+                                    unreadCount: unreadService.unreadCounts[group.id] ?? 0
+                                )
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.top, isRefreshing ? 32 : 16) // Platz für Indicator
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    
+                    // 👈 Kleiner Refresh-Indicator oben (wie Instagram)
+                    if isRefreshing {
+                        ProgressView()
+                            .tint(.blue)
+                            .padding(.top, 8)
+                            .transition(.opacity)
+                    }
                 }
             }
         }
@@ -73,19 +88,21 @@ struct GroupsView: View {
             })
             .presentationDetents([.medium])
         }
+        // 👈 NUR beim ersten Öffnen laden
         .task {
-            await loadGroups()
-        }
-        .onAppear {
-            Task {
-                await refreshUnreadCounts()
+            if groups.isEmpty {
+                await loadGroups()
             }
         }
+        // 👈 KEIN cleanup mehr - Realtime läuft weiter!
     }
 
-    // MARK: - Gruppen laden
+    // MARK: - Gruppen laden (nur beim Start)
     @MainActor
     private func loadGroups() async {
+        // Verhindere doppeltes Laden
+        guard !isLoading else { return }
+        
         isLoading = true
         errorMessage = nil
         
@@ -103,19 +120,24 @@ struct GroupsView: View {
         isLoading = false
     }
     
-    // MARK: - Ungelesene Nachrichten aktualisieren
+    // MARK: - Nur Unread Counts aktualisieren (schnell!)
     @MainActor
     private func refreshUnreadCounts() async {
         guard !groups.isEmpty else { return }
         
+        isRefreshing = true
+        
         let groupIds = groups.map { $0.id }
         
         do {
-            let counts = try await UnreadMessagesService.shared.refreshAllUnreadCounts(for: groupIds)
-            print("✅ Ungelesene Nachrichten aktualisiert: \(counts)")
+            // 👈 Startet automatisch Realtime für alle Gruppen
+            try await unreadService.refreshAllUnreadCounts(for: groupIds)
+            print("✅ Ungelesene Nachrichten aktualisiert + Realtime gestartet")
         } catch {
             print("⚠️ Fehler beim Laden der ungelesenen Nachrichten: \(error)")
         }
+        
+        isRefreshing = false
     }
 }
 
@@ -143,7 +165,7 @@ private struct GroupRow: View {
                 }
                 .buttonStyle(.bordered)
 
-                // 👈 NEU: Badge für ungelesene Nachrichten
+                // 👈 Badge für ungelesene Nachrichten
                 ZStack(alignment: .topTrailing) {
                     NavigationLink {
                         GroupChatScreen(group: group)
