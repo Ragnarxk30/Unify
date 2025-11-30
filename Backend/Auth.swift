@@ -8,6 +8,7 @@ public class AuthService {
         self.client = supabase
     }
     
+    // MARK: - Sign Up (Registrierung)
     func signUp(email: String, password: String, name: String) async throws -> AppUser {
         let redirect = URL(string: "unify://auth-callback")!
 
@@ -17,15 +18,15 @@ public class AuthService {
             redirectTo: redirect
         )
         
-        // Kurze Pause beibehalten um Race Condition zu vermeiden 
+        // Kurze Pause beibehalten um Race Condition zu vermeiden
         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 Sekunden
         
         // Prüfen ob User in auth.users vorhanden ist
         do {
             let session = try await client.auth.session
-            print("Auth user erfolgreich erstellt: \(session.user.id)")
+            print("✅ Auth user erfolgreich erstellt: \(session.user.id)")
         } catch {
-            print("Auth user noch nicht ready, warte weiter...")
+            print("⚠️ Auth user noch nicht ready, warte weiter...")
             try await Task.sleep(nanoseconds: 500_000_000) // Nochmal 0.5s
         }
 
@@ -40,28 +41,85 @@ public class AuthService {
     }
     
     // MARK: - Sign In (Login)
-        func signIn(email: String, password: String) async throws -> AppUser {
-            print("🔵 [AuthService] Login für \(email)…")
+    func signIn(email: String, password: String) async throws -> AppUser {
+        print("🔵 [AuthService] Login für \(email)…")
 
-            // → Supabase-Auth Login
-            _ = try await client.auth.signIn(email: email, password: password)
+        // → Supabase-Auth Login
+        _ = try await client.auth.signIn(email: email, password: password)
 
-            // → Session prüfen
-            let session = try await client.auth.session
-            let uid = session.user.id
-            print("✅ [AuthService] Session aktiv. uid=\(uid)")
+        // → Session prüfen
+        let session = try await client.auth.session
+        let uid = session.user.id
+        print("✅ [AuthService] Session aktiv. uid=\(uid)")
 
-            // → User-Row laden
-            let user: AppUser = try await client
-                .from("user")
-                .select("id, display_name, email")
-                .eq("id", value: uid)
-                .single()
-                .execute()
-                .value
+        // → User-Row laden
+        let user: AppUser = try await client
+            .from("user")
+            .select("id, display_name, email")
+            .eq("id", value: uid)
+            .single()
+            .execute()
+            .value
 
-            print("✅ [AuthService] User gefunden: \(user.display_name)")
-            return user
-        }
+        print("✅ [AuthService] User gefunden: \(user.display_name)")
+        return user
     }
-
+    
+    // MARK: - Sign Out (Abmelden)
+    func signOut() async throws {
+        print("🔵 [AuthService] Melde User ab…")
+        try await client.auth.signOut()
+        print("✅ [AuthService] User abgemeldet")
+    }
+    
+    // MARK: - Email ändern (mit deiner SQL Function)
+    func changeEmail(newEmail: String) async throws {
+        print("🔵 [AuthService] Ändere E-Mail zu: \(newEmail)")
+        
+        // 👈 DEINE SQL FUNCTION AUFRUFEN
+        try await client
+            .rpc("change_user_email", params: ["new_email": newEmail])
+            .execute()
+        
+        print("✅ [AuthService] E-Mail wurde zu \(newEmail) geändert")
+    }
+    
+    // MARK: - 👈 Account sofort löschen (OHNE Email)
+    func deleteAccountImmediately() async throws {
+        print("🔵 [AuthService] Lösche Account sofort…")
+        
+        let session = try await client.auth.session
+        let userId = session.user.id
+        
+        // 1) PostgreSQL Function aufrufen (löscht User + Auth + alle Daten)
+        try await client.rpc("delete_user_account").execute()
+        
+        // 2) Lokal ausloggen
+        try await signOut()
+        
+        print("✅ [AuthService] Account wurde gelöscht")
+    }
+    
+    // MARK: - Passwort ändern (über SQL Function)
+    func changePassword(newPassword: String) async throws {
+        print("🔵 [AuthService] Ändere Passwort...")
+        
+        // 👈 SQL FUNCTION AUFRUFEN (genau wie bei E-Mail)
+        try await client
+            .rpc("change_user_password", params: ["new_password": newPassword])
+            .execute()
+        
+        print("✅ [AuthService] Passwort wurde geändert")
+    }
+    
+    // MARK: - Current User ID
+    func currentUserId() async throws -> UUID {
+        let session = try await client.auth.session
+        return session.user.id
+    }
+    
+    // MARK: - Current Session
+    func currentSession() async throws -> Session {
+        return try await client.auth.session
+    }
+}

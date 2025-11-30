@@ -18,12 +18,28 @@ struct SettingsView: View {
     @State private var isEditingName = false
     @State private var editedDisplayName: String = ""
     @State private var isSavingName = false
+    
+    // NEU: Email ändern
+    @State private var isEditingEmail = false
+    @State private var editedEmail: String = ""
+    @State private var isSavingEmail = false
 
     @State private var showPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var selectedProfileImageData: Data?
     @State private var isUploadingImage = false
+    
+    // NEU: Account Löschen
+    @State private var showDeleteAccountConfirm = false
+    @State private var isDeletingAccount = false
 
+    // Passwort ändern States
+    @State private var isChangingPassword = false
+    @State private var showChangePasswordSheet = false
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+
+    
     // Profile Image Service
     @StateObject private var profileImageService = ProfileImageService()
 
@@ -149,11 +165,26 @@ struct SettingsView: View {
                                         } label: {
                                             Label("Anzeigename bearbeiten", systemImage: "pencil")
                                         }
+                                        
+                                        // Passwort ändern Button
+                                        Button {
+                                            showChangePasswordSheet = true
+                                        } label: {
+                                            Label("Passwort ändern", systemImage: "key")
+                                        }
+                                        
+                                        // NEU: Email ändern
+                                        Button {
+                                            editedEmail = user.email
+                                            isEditingEmail = true
+                                        } label: {
+                                            Label("E-Mail ändern", systemImage: "envelope")
+                                        }
 
                                         Button {
                                             showPhotoPicker = true
                                         } label: {
-                                            Label("Profilbild ändern", systemImage: "photo")
+                                            Label("Profilbild hochladen", systemImage: "photo")
                                         }
                                         
                                         if hasProfileImage {
@@ -230,6 +261,25 @@ struct SettingsView: View {
                         Text("Abmelden")
                     }
                 }
+                
+                // NEU: Account löschen
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAccountConfirm = true
+                    } label: {
+                        HStack {
+                            if isDeletingAccount {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            }
+                            Text("Account löschen")
+                        }
+                    }
+                    .disabled(isDeletingAccount)
+                } footer: {
+                    Text("Du erhältst eine Bestätigungsmail bevor dein Account gelöscht wird. Alle deine Daten werden dauerhaft entfernt.")
+                        .font(.caption)
+                }
             }
             .navigationTitle("Einstellungen")
             .alert("Ergebnis", isPresented: .constant(alertMessage != nil)) {
@@ -238,6 +288,19 @@ struct SettingsView: View {
                 if let message = alertMessage {
                     Text(message)
                 }
+            }
+            // NEU: Account Löschen Bestätigung
+            .confirmationDialog(
+                "Account wirklich löschen?",
+                isPresented: $showDeleteAccountConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Account löschen", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+                Button("Abbrechen", role: .cancel) { }
+            } message: {
+                Text("Du erhältst eine E-Mail zur Bestätigung. Diese Aktion kann nicht rückgängig gemacht werden. Alle deine Gruppen, Nachrichten und Daten werden dauerhaft gelöscht.")
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
             .onChange(of: photoPickerItem) { _, newItem in
@@ -254,6 +317,65 @@ struct SettingsView: View {
             .task {
                 await checkProfilePictureStatus()
             }
+            // NEU: Email ändern Sheet
+            .sheet(isPresented: $isEditingEmail) {
+                ChangeEmailSheet(
+                    currentEmail: session.currentUser?.email ?? "",
+                    editedEmail: $editedEmail,
+                    isSaving: $isSavingEmail,
+                    onSave: {
+                        await changeEmail()
+                    },
+                    onCancel: {
+                        isEditingEmail = false
+                        editedEmail = session.currentUser?.email ?? ""
+                    }
+                )
+                .presentationDetents([.medium])
+            }
+            // NEU: Passwort ändern Sheet
+            .sheet(isPresented: $showChangePasswordSheet) {
+                ChangePasswordSheet(
+                    newPassword: $newPassword,
+                    confirmPassword: $confirmPassword,
+                    isChanging: $isChangingPassword,
+                    onChangePassword: {
+                        await changePassword()
+                    },
+                    onCancel: {
+                        showChangePasswordSheet = false
+                        newPassword = ""
+                        confirmPassword = ""
+                    }
+                )
+                .presentationDetents([.medium])
+            }
+        }
+    }
+
+    // MARK: - Account sofort löschen
+    private func deleteAccount() async {
+        await MainActor.run {
+            isDeletingAccount = true
+        }
+        
+        do {
+            let authService = AuthService()
+            
+            // Sofort löschen ohne Email
+            try await authService.deleteAccountImmediately()
+            
+            await MainActor.run {
+                isDeletingAccount = false
+                session.markSignedOut()
+            }
+            
+        } catch {
+            await MainActor.run {
+                isDeletingAccount = false
+                alertMessage = "❌ Account-Löschung fehlgeschlagen: \(error.localizedDescription)"
+            }
+            print("❌ Delete account error: \(error)")
         }
     }
 
@@ -265,7 +387,6 @@ struct SettingsView: View {
                 hasProfileImage = exists
             }
             
-            // Wenn Bild existiert, lade es
             if exists {
                 await loadProfilePicture()
             }
@@ -304,8 +425,6 @@ struct SettingsView: View {
         
         do {
             let avatarURL = try await profileImageService.uploadProfilePicture(uiImage)
-            
-            // Avatar URL in User-Tabelle speichern
             try await updateUserProfileWithAvatar(avatarURL)
             
             await MainActor.run {
@@ -330,8 +449,6 @@ struct SettingsView: View {
         
         do {
             try await profileImageService.deleteProfilePicture()
-            
-            // Avatar URL aus User-Tabelle entfernen
             try await updateUserProfileWithAvatar("")
             
             await MainActor.run {
@@ -401,6 +518,67 @@ struct SettingsView: View {
             }
         }
     }
+    
+    // MARK: - Email ändern (mit deiner SQL Function)
+    private func changeEmail() async {
+        let newEmail = editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !newEmail.isEmpty, newEmail != session.currentUser?.email else { return }
+        
+        // Email-Validierung
+        guard newEmail.contains("@"), newEmail.contains(".") else {
+            await MainActor.run {
+                alertMessage = "❌ Bitte gib eine gültige E-Mail-Adresse ein."
+            }
+            return
+        }
+
+        await MainActor.run { isSavingEmail = true }
+        
+        do {
+            let authService = AuthService()
+            try await authService.changeEmail(newEmail: newEmail)
+            
+            await MainActor.run {
+                isSavingEmail = false
+                isEditingEmail = false
+                alertMessage = "✅ [AuthService] E-Mail wurde zu \(newEmail) geändert"
+            }
+        } catch {
+            await MainActor.run {
+                isSavingEmail = false
+                alertMessage = "❌ E-Mail konnte nicht geändert werden: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    // MARK: - Passwort ändern (über SQL Function)
+    private func changePassword() async {
+        guard !newPassword.isEmpty, newPassword == confirmPassword else { return }
+        guard newPassword.count >= 6 else { return }
+
+        await MainActor.run {
+            isChangingPassword = true
+        }
+        
+        do {
+            let authService = AuthService()
+            try await authService.changePassword(newPassword: newPassword)
+            
+            await MainActor.run {
+                isChangingPassword = false
+                showChangePasswordSheet = false
+                newPassword = ""
+                confirmPassword = ""
+                alertMessage = "✅ Passwort wurde erfolgreich geändert"
+            }
+            
+        } catch {
+            await MainActor.run {
+                isChangingPassword = false
+                alertMessage = "❌ Passwort konnte nicht geändert werden: \(error.localizedDescription)"
+            }
+        }
+    }
 
     // MARK: - Appearance Methods
     func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
@@ -425,6 +603,164 @@ struct SettingsView: View {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
         windowScene.windows.forEach { window in
             window.overrideUserInterfaceStyle = style
+        }
+    }
+}
+
+// MARK: - Email ändern Sheet
+private struct ChangeEmailSheet: View {
+    let currentEmail: String
+    @Binding var editedEmail: String
+    @Binding var isSaving: Bool
+    let onSave: () async -> Void
+    let onCancel: () -> Void
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(currentEmail)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Aktuelle E-Mail")
+                }
+                
+                Section {
+                    TextField("Neue E-Mail", text: $editedEmail)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .disabled(isSaving)
+                } header: {
+                    Text("Neue E-Mail-Adresse")
+                } footer: {
+                    Text("email wird sofort geändert und Du erhältst eine Bestätigungsmail.")
+                }
+            }
+            .navigationTitle("E-Mail ändern")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        onCancel()
+                    }
+                    .disabled(isSaving)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task {
+                            await onSave()
+                        }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Speichern")
+                        }
+                    }
+                    .disabled(
+                        isSaving ||
+                        editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        editedEmail == currentEmail
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Passwort ändern Sheet
+private struct ChangePasswordSheet: View {
+    @Binding var newPassword: String
+    @Binding var confirmPassword: String
+    @Binding var isChanging: Bool
+    let onChangePassword: () async -> Void
+    let onCancel: () -> Void
+    
+    @State private var showPassword = false
+    
+    private var passwordsMatch: Bool {
+        !newPassword.isEmpty && newPassword == confirmPassword
+    }
+    
+    private var isPasswordValid: Bool {
+        newPassword.count >= 6
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if showPassword {
+                            TextField("Neues Passwort", text: $newPassword)
+                            TextField("Passwort bestätigen", text: $confirmPassword)
+                        } else {
+                            SecureField("Neues Passwort", text: $newPassword)
+                            SecureField("Passwort bestätigen", text: $confirmPassword)
+                        }
+                        
+                        Button {
+                            showPassword.toggle()
+                        } label: {
+                            Label(
+                                showPassword ? "Passwort verbergen" : "Passwort anzeigen",
+                                systemImage: showPassword ? "eye.slash" : "eye"
+                            )
+                            .font(.caption)
+                        }
+                    }
+                } header: {
+                    Text("Neues Passwort")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !newPassword.isEmpty && !isPasswordValid {
+                            Text("❌ Passwort muss mindestens 6 Zeichen lang sein")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                        
+                        if !confirmPassword.isEmpty && !passwordsMatch {
+                            Text("❌ Passwörter stimmen nicht überein")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                        
+                        if passwordsMatch && isPasswordValid {
+                            Text("✅ Passwörter stimmen überein")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Passwort ändern")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        onCancel()
+                    }
+                    .disabled(isChanging)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task {
+                            await onChangePassword()
+                        }
+                    } label: {
+                        if isChanging {
+                            ProgressView()
+                        } else {
+                            Text("Ändern")
+                        }
+                    }
+                    .disabled(isChanging || !passwordsMatch || !isPasswordValid)
+                }
+            }
         }
     }
 }
