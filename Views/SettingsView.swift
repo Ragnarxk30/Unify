@@ -184,7 +184,7 @@ struct SettingsView: View {
                                         Button {
                                             showPhotoPicker = true
                                         } label: {
-                                            Label("Profilbild hochladen", systemImage: "photo")
+                                            Label("Profilbild ändern", systemImage: "photo")
                                         }
                                         
                                         if hasProfileImage {
@@ -277,7 +277,7 @@ struct SettingsView: View {
                     }
                     .disabled(isDeletingAccount)
                 } footer: {
-                    Text("Du erhältst eine Bestätigungsmail bevor dein Account gelöscht wird. Alle deine Daten werden dauerhaft entfernt.")
+                    Text("Du erhältst keine Bestätigungsmail und kannst dein Konto nicht wiederherstellen.")
                         .font(.caption)
                 }
             }
