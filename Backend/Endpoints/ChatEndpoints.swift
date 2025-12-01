@@ -18,6 +18,7 @@ struct ChatEndpoints {
         content,
         sent_by,
         sent_at,
+        is_edited,
         message_type,
         voice_duration,
         voice_url,
@@ -220,7 +221,12 @@ struct ChatEndpoints {
     
     // MARK: - Edit Message
     static func editMessage(_ messageId: UUID, newContent: String) async throws -> Message {
-        let payload = ["content": newContent]
+        struct EditPayload: Encodable {
+            let content: String
+            let is_edited: Bool
+        }
+        
+        let payload = EditPayload(content: newContent, is_edited: true)
         
         let updated: Message = try await db
             .from(messagesTable)
