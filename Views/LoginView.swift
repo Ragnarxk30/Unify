@@ -213,8 +213,8 @@ struct RegisterView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Anzeigename").font(.subheadline).foregroundStyle(.secondary)
-                    TextField("Bitte Anzeigename eingeben", text: $name)
+                    Text("Benutzername").font(.subheadline).foregroundStyle(.secondary)
+                    TextField("Bitte Benutzername eingeben", text: $name)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
