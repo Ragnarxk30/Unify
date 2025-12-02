@@ -1054,39 +1054,151 @@ private struct ChatBubbleView: View {
 }
 
 // MARK: - Voice Message Bubble
-
 struct VoiceMessageBubble: View {
     let message: Message
     @ObservedObject var audioService: AudioRecorderService
     
-    @State private var isPlayingLocal = false
+    @State private var isDragging = false
+    @State private var dragProgress: Double = 0
     
-    private let waveformHeights: [CGFloat] = [8, 12, 16, 20, 16, 12, 8, 10, 14, 18]
+    private var isCurrentMessage: Bool {
+        audioService.currentMessageId == message.id
+    }
+    
+    private var isCurrentMessagePlaying: Bool {
+        isCurrentMessage && audioService.isPlaying
+    }
+    
+    private var baseDurationSeconds: Double {
+        if let d = message.voice_duration {
+            return Double(d)
+        }
+        if isCurrentMessage, audioService.duration > 0 {
+            return audioService.duration
+        }
+        return 0
+    }
+    
+    private var effectiveDurationSeconds: Double {
+        if isCurrentMessage, audioService.duration > 0 {
+            return audioService.duration
+        }
+        return baseDurationSeconds
+    }
+    
+    private var displayTimeString: String {
+        let displaySeconds: Int
+        
+        // Während des Draggings: zeige Drag-Position
+        if isDragging {
+            displaySeconds = Int((dragProgress * effectiveDurationSeconds).rounded())
+        } else if isCurrentMessage,
+                  audioService.currentTime > 0,
+                  effectiveDurationSeconds > 0 {
+            let clamped = min(audioService.currentTime, effectiveDurationSeconds)
+            displaySeconds = Int(clamped.rounded())
+        } else {
+            displaySeconds = Int(effectiveDurationSeconds.rounded())
+        }
+        
+        let minutes = displaySeconds / 60
+        let seconds = displaySeconds % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+    
+    private var progressPercentage: Double {
+        // Während des Draggings: zeige Drag-Progress
+        if isDragging {
+            return dragProgress
+        }
+        
+        guard isCurrentMessage,
+              audioService.duration > 0 else {
+            return 0
+        }
+        return min(audioService.currentTime / audioService.duration, 1.0)
+    }
+    
+    private func waveformHeights(for width: CGFloat) -> [CGFloat] {
+        let barWidth: CGFloat = 2
+        let spacing: CGFloat = 2
+        let barCount = Int(width / (barWidth + spacing))
+        
+        let heights: [CGFloat] = [8, 12, 16, 20, 16, 12, 8, 10, 14, 18, 15, 11, 17, 13, 9]
+        
+        return (0..<barCount).map { index in
+            heights[index % heights.count]
+        }
+    }
     
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Button(action: togglePlayback) {
-                Image(systemName: isPlayingLocal ? "pause.circle.fill" : "play.circle.fill")
+                Image(systemName: isCurrentMessagePlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.title2)
                     .foregroundColor(.purple)
             }
             .disabled(message.voice_url == nil)
             
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 2) {
-                    ForEach(0..<waveformHeights.count, id: \.self) { index in
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(Color.purple.opacity(0.6))
-                            .frame(width: 2, height: waveformHeights[index])
+                // Waveform mit Drag Gesture
+                GeometryReader { geometry in
+                    let heights = waveformHeights(for: geometry.size.width)
+                    
+                    ZStack(alignment: .leading) {
+                        // Hintergrund-Bars
+                        HStack(spacing: 2) {
+                            ForEach(0..<heights.count, id: \.self) { index in
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(Color.purple.opacity(0.25))
+                                    .frame(width: 2, height: heights[index])
+                            }
+                        }
+                        
+                        // Vordergrund-Bars mit Progress
+                        HStack(spacing: 2) {
+                            ForEach(0..<heights.count, id: \.self) { index in
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(Color.purple)
+                                    .frame(width: 2, height: heights[index])
+                            }
+                        }
+                        .frame(width: geometry.size.width * progressPercentage, alignment: .leading)
+                        .clipped()
+                        .animation(isDragging ? nil : .linear(duration: 0.1), value: progressPercentage)
                     }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                // Aktiviere Message, falls nicht aktiv
+                                if !isCurrentMessage {
+                                    startPlaybackForSeeking()
+                                }
+                                
+                                isDragging = true
+                                let progress = max(0, min(value.location.x / geometry.size.width, 1.0))
+                                dragProgress = progress
+                            }
+                            .onEnded { value in
+                                let progress = max(0, min(value.location.x / geometry.size.width, 1.0))
+                                let seekTime = progress * effectiveDurationSeconds
+                                
+                                audioService.seek(to: seekTime)
+                                isDragging = false
+                            }
+                    )
                 }
+                .frame(height: 20)
                 
-                Text(message.formattedDuration ?? "0:00")
+                // Timer
+                Text(displayTimeString)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .monospacedDigit()
             }
             
-            if isPlayingLocal {
+            if isCurrentMessagePlaying {
                 ProgressView()
                     .scaleEffect(0.8)
             }
@@ -1099,46 +1211,47 @@ struct VoiceMessageBubble: View {
             RoundedRectangle(cornerRadius: ChatConstants.bubbleCornerRadius)
                 .stroke(Color.purple.opacity(0.3), lineWidth: 1)
         )
-        .onChange(of: audioService.isPlaying) { _, newValue in
-            if !newValue && isPlayingLocal {
-                isPlayingLocal = false
-            }
-        }
         .onChange(of: audioService.errorMessage) { _, newValue in
-            if newValue != nil && isPlayingLocal {
-                isPlayingLocal = false
+            if newValue != nil && isCurrentMessage {
+                audioService.stopPlayback()
             }
         }
         .onDisappear {
-            if isPlayingLocal {
+            if isCurrentMessage {
                 audioService.stopPlayback()
-                isPlayingLocal = false
             }
         }
     }
     
     private func togglePlayback() {
-        guard let urlString = message.voice_url, let url = URL(string: urlString) else { return }
+        guard let urlString = message.voice_url,
+              let url = URL(string: urlString) else { return }
         
-        if isPlayingLocal {
-            audioService.stopPlayback()
-            isPlayingLocal = false
+        if isCurrentMessagePlaying {
+            audioService.pausePlayback()
+        } else if isCurrentMessage {
+            audioService.resumePlayback()
         } else {
-            isPlayingLocal = true
             Task {
-                await audioService.playAudioFromURL(url)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    if !audioService.isPlaying && isPlayingLocal {
-                        isPlayingLocal = false
-                    }
-                }
+                await audioService.playAudioFromURL(url, for: message.id)
             }
+        }
+    }
+    
+    // Starte Playback im Pause-Zustand für Seeking
+    private func startPlaybackForSeeking() {
+        guard let urlString = message.voice_url,
+              let url = URL(string: urlString) else { return }
+        
+        Task {
+            await audioService.playAudioFromURL(url, for: message.id)
+            audioService.pausePlayback()
         }
     }
 }
 
-// MARK: - AudioUploadService
 
+// MARK: - AudioUploadService
 struct AudioUploadService {
     func uploadVoiceMessage(
         audioURL: URL,
