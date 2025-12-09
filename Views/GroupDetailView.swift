@@ -3,32 +3,25 @@ import SwiftUI
 enum GroupDetailTab: String, CaseIterable, Hashable {
     case events = "Termine"
     case chat = "Chat"
+    
+    var icon: String {
+        switch self {
+        case .events: return "calendar"
+        case .chat: return "text.bubble"
+        }
+    }
 }
 
 struct GroupDetailView: View {
-    let group: AppGroup // ✅ AppGroup statt Group 
-    @State private var selected: GroupDetailTab = .events
+    let group: AppGroup
+    
+    @State private var selectedTab: GroupDetailTab = .events
     @State private var showAddEvent = false
-
+    
     var body: some View {
         VStack(spacing: 0) {
-            // ✅ Einfache Picker-Lösung statt SegmentedToggle
-            Picker("Ansicht", selection: $selected) {
-                ForEach(GroupDetailTab.allCases, id: \.self) { tab in
-                    Label(tab.rawValue, systemImage: systemImage(for: tab))
-                        .tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-
-            switch selected {
-            case .events:
-                GroupEventsView(groupID: group.id) // ✅ Ohne GroupsViewModel
-            case .chat:
-                GroupChatView(group: group) // ✅ Ohne ChatViewModel
-            }
+            tabPicker
+            tabContent
         }
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -44,17 +37,32 @@ struct GroupDetailView: View {
             }
         }
         .sheet(isPresented: $showAddEvent) {
-            // ✅ GroupEventsView für Event-Erstellung verwenden
             GroupEventsView(groupID: group.id)
                 .presentationDetents([.medium, .large])
         }
     }
-
-    // ✅ Helper für System-Icons
-    private func systemImage(for tab: GroupDetailTab) -> String {
-        switch tab {
-        case .events: return "calendar"
-        case .chat: return "text.bubble"
+    
+    // MARK: - Subviews
+    
+    private var tabPicker: some View {
+        Picker("Ansicht", selection: $selectedTab) {
+            ForEach(GroupDetailTab.allCases, id: \.self) { tab in
+                Label(tab.rawValue, systemImage: tab.icon)
+                    .tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+    }
+    
+    @ViewBuilder
+    private var tabContent: some View {
+        switch selectedTab {
+        case .events:
+            GroupEventsView(groupID: group.id)
+        case .chat:
+            GroupChatView(group: group)
         }
     }
 }

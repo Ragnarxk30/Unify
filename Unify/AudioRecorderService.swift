@@ -1,7 +1,3 @@
-//
-//  AudioRecorderService.swift
-//
-
 import Foundation
 import AVFoundation
 import SwiftUI
@@ -18,8 +14,13 @@ final class AudioRecorderService: NSObject, ObservableObject {
     @Published var playbackProgress: Double = 0
     @Published var errorMessage: String?
     @Published var recordingDurationString: String = "00:00"
+    
+    // Für animierte Fortschrittsanzeige
+    @Published var currentTime: Double = 0.0        // aktuelle Position
+    @Published var duration: Double = 0.0           // Dauer des aktuellen Files
+    @Published var currentMessageId: UUID? = nil    // zu welcher Message gehört das aktuell
 
-    // MARK: - Internals 
+    // MARK: - Internals
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
 
@@ -78,6 +79,10 @@ final class AudioRecorderService: NSObject, ObservableObject {
         recordingTime = 0
         recordingDurationString = "00:00"
         errorMessage = nil
+        
+        currentTime = 0.0
+        duration = 0.0
+        currentMessageId = nil
     }
 
     // MARK: - Session Setup
@@ -165,7 +170,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     // MARK: - Play Existing Audio (file URL)
-    func playAudioFromURL(_ url: URL) async {
+    func playAudioFromURL(_ url: URL, for messageId: UUID) async {
         cleanupPlayback()
 
         do {
@@ -186,7 +191,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
             let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("audio-\(UUID().uuidString).m4a")
             try data.write(to: tempFile)
 
-            playLocalFile(tempFile)
+            playLocalFile(tempFile, messageId: messageId)
 
         } catch {
             errorMessage = "Audio Download fehlgeschlagen: \(error.localizedDescription)"
@@ -194,7 +199,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
     }
 
     // MARK: - Play local file
-    private func playLocalFile(_ url: URL) {
+    private func playLocalFile(_ url: URL, messageId: UUID) {
         cleanupPlayback()
 
         do {
@@ -202,6 +207,11 @@ final class AudioRecorderService: NSObject, ObservableObject {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer?.delegate = self
             audioPlayer?.prepareToPlay()
+            
+            duration = audioPlayer?.duration ?? 0.0
+            currentTime = 0.0
+            currentMessageId = messageId
+            
             audioPlayer?.play()
 
             isPlaying = true
@@ -213,6 +223,35 @@ final class AudioRecorderService: NSObject, ObservableObject {
             errorMessage = "Audio konnte nicht abgespielt werden: \(error.localizedDescription)"
         }
     }
+    
+    // MARK: - Pause / Resume
+    func pausePlayback() {
+        guard isPlaying else { return }
+        audioPlayer?.pause()
+        isPlaying = false
+    }
+
+    func resumePlayback() {
+        guard !isPlaying, let player = audioPlayer else { return }
+        try? session.setCategory(.playback, mode: .default)
+        player.play()
+        isPlaying = true
+    }
+    
+    // MARK: - Seek
+    func seek(to time: TimeInterval) {
+        guard let player = audioPlayer else { return }
+        
+        // Clamp time zwischen 0 und duration
+        let seekTime = max(0, min(time, player.duration))
+        player.currentTime = seekTime
+        currentTime = seekTime
+        
+        // Update progress
+        if player.duration > 0 {
+            playbackProgress = seekTime / player.duration
+        }
+    }
 
     // MARK: - Stop Playback
     func stopPlayback() {
@@ -220,6 +259,9 @@ final class AudioRecorderService: NSObject, ObservableObject {
         stopPlaybackTimer()
         isPlaying = false
         playbackProgress = 0
+        currentTime = 0.0
+        duration = 0.0
+        currentMessageId = nil
     }
 
     private func cleanupPlayback() {
@@ -228,14 +270,20 @@ final class AudioRecorderService: NSObject, ObservableObject {
         audioPlayer = nil
         isPlaying = false
         playbackProgress = 0
+        currentTime = 0.0
+        duration = 0.0
+        currentMessageId = nil
     }
 
     // MARK: - Timer Handling
     private func startRecordingTimer() {
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.recordingTime += 0.1
-            self.recordingDurationString = self.formatTime(self.recordingTime)
+            
+            Task { @MainActor in
+                self.recordingTime += 0.1
+                self.recordingDurationString = self.formatTime(self.recordingTime)
+            }
         }
     }
 
@@ -246,8 +294,18 @@ final class AudioRecorderService: NSObject, ObservableObject {
 
     private func startPlaybackTimer() {
         playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, let player = self.audioPlayer else { return }
-            self.playbackProgress = player.duration > 0 ? (player.currentTime / player.duration) : 0
+            guard let self else { return }
+            
+            Task { @MainActor in
+                guard let player = self.audioPlayer else { return }
+                
+                // Immer den echten Stand spiegeln
+                self.currentTime = player.currentTime
+                self.duration = player.duration
+                self.playbackProgress = player.duration > 0
+                    ? (player.currentTime / player.duration)
+                    : 0
+            }
         }
     }
 
@@ -294,7 +352,7 @@ final class AudioRecorderService: NSObject, ObservableObject {
     private func formatTime(_ time: TimeInterval) -> String {
         let min = Int(time) / 60
         let sec = Int(time) % 60
-        return String(format: "%02d:%02d", min, sec)
+        return String(format: "%d:%02d", min, sec)
     }
 }
 

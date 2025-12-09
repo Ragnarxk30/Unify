@@ -1,11 +1,12 @@
 import SwiftUI
 
+// MARK: - GroupSettingsView
 struct GroupSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-
+    
     let group: AppGroup
     let onUpdated: (AppGroup) -> Void
-
+    
     @State private var name: String
     @State private var isSaving = false
     @State private var isDeleting = false
@@ -24,146 +25,37 @@ struct GroupSettingsView: View {
     @State private var showLeaveConfirm = false
     @State private var showOwnerTransferSheet = false
     
-    // 👈 NEU: Profilbilder Cache
     @State private var memberProfileImages: [UUID: UIImage] = [:]
-
+    
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
-
+    
     private var nameTrimmed: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
+    
+    private var canEditGroup: Bool {
+        isOwner || isAdmin
+    }
+    
     init(group: AppGroup, onUpdated: @escaping (AppGroup) -> Void) {
         self.group = group
         self.onUpdated = onUpdated
         _name = State(initialValue: group.name)
     }
-
+    
     var body: some View {
         NavigationStack {
             Form {
-                Section("Gruppenname") {
-                    if isOwner || isAdmin {
-                        TextField("Gruppenname", text: $name)
-                            .disabled(isSaving)
-                    } else {
-                        HStack {
-                            Text(group.name)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                Section("Mitglieder") {
-                    if isLoadingMembers {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Lade Mitglieder...")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if members.isEmpty {
-                        Text("Noch keine Mitglieder")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(members) { member in
-                            HStack {
-                                // 👈 NEU: Profilbild mit Fallback
-                                Group {
-                                    if let profileImage = memberProfileImages[member.user_id] {
-                                        Image(uiImage: profileImage)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    } else {
-                                        Image("Avatar_Default")
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    }
-                                }
-                                .frame(width: 36, height: 36)
-                                .clipShape(Circle())
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                                )
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(member.memberUser.display_name)
-                                        .font(.body)
-                                    Text(member.role.displayName)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                
-                                Spacer()
-                                
-                                if (isOwner || isAdmin) && member.user_id != group.owner_id && member.user_id != currentUserId {
-                                    Button(role: .destructive) {
-                                        memberToRemove = member
-                                        showRemoveMemberConfirm = true
-                                    } label: {
-                                        Image(systemName: "person.fill.xmark")
-                                            .foregroundColor(.red)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                    
-                    if isOwner || isAdmin {
-                        Button {
-                            showAddMember = true
-                        } label: {
-                            Label("Mitglied hinzufügen", systemImage: "person.badge.plus")
-                        }
-                    }
-                }
-
-                Section {
-                    Button(role: .destructive) {
-                        if isOwner {
-                            showOwnerTransferSheet = true
-                        } else {
-                            showLeaveConfirm = true
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                            Text(isOwner ? "Gruppe verlassen & Besitzer transferieren" : "Gruppe verlassen")
-                        }
-                    }
-                    .disabled(isDeleting)
-                } footer: {
-                    if isOwner {
-                        Text("Als Besitzer musst du einen neuen Besitzer auswählen, bevor du die Gruppe verlassen kannst.")
-                    } else {
-                        Text("Du kannst diese Gruppe jederzeit verlassen.")
-                    }
-                }
-
+                groupNameSection
+                membersSection
+                leaveGroupSection
+                
                 if isOwner {
-                    Section {
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            Label("Gruppe löschen", systemImage: "trash")
-                        }
-                        .disabled(isDeleting)
-                    } footer: {
-                        Text("Nur der Besitzer kann die Gruppe löschen.")
-                    }
+                    deleteGroupSection
                 }
-
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
+                
+                errorSection
             }
             .navigationTitle("Gruppeneinstellungen")
             .navigationBarTitleDisplayMode(.inline)
@@ -173,60 +65,49 @@ struct GroupSettingsView: View {
                         .disabled(isSaving || isDeleting)
                 }
                 
-                if isOwner || isAdmin {
+                if canEditGroup {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Speichern") { Task { await save() } }
                             .disabled(isSaving || nameTrimmed.isEmpty || nameTrimmed == group.name)
                     }
                 }
             }
-            .confirmationDialog(
-                "Gruppe wirklich löschen?",
-                isPresented: $showDeleteConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Gruppe löschen", role: .destructive) {
+            // Gruppe löschen Bestätigung
+            .alert("Gruppe wirklich löschen?", isPresented: $showDeleteConfirm) {
+                Button("Abbrechen", role: .cancel) { }
+                Button("Löschen", role: .destructive) {
                     Task { await deleteGroup() }
                 }
-                Button("Abbrechen", role: .cancel) { }
             } message: {
                 Text("Diese Aktion kann nicht rückgängig gemacht werden.")
             }
-            .confirmationDialog(
-                "Mitglied entfernen?",
-                isPresented: $showRemoveMemberConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Mitglied entfernen", role: .destructive) {
-                    if let member = memberToRemove {
-                        removeMember(member)
-                    }
-                }
+            // Mitglied entfernen Bestätigung
+            .alert("Mitglied entfernen?", isPresented: $showRemoveMemberConfirm) {
                 Button("Abbrechen", role: .cancel) {
                     memberToRemove = nil
+                }
+                Button("Entfernen", role: .destructive) {
+                    if let member = memberToRemove {
+                        Task { await removeMember(member) }
+                    }
                 }
             } message: {
                 if let member = memberToRemove {
                     Text("Möchtest du \(member.memberUser.display_name) wirklich aus der Gruppe entfernen?")
                 }
             }
-            .confirmationDialog(
-                "Gruppe wirklich verlassen?",
-                isPresented: $showLeaveConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Gruppe verlassen", role: .destructive) {
+            // Gruppe verlassen Bestätigung
+            .alert("Gruppe wirklich verlassen?", isPresented: $showLeaveConfirm) {
+                Button("Abbrechen", role: .cancel) { }
+                Button("Verlassen", role: .destructive) {
                     Task { await leaveGroup() }
                 }
-                Button("Abbrechen", role: .cancel) { }
             } message: {
                 Text("Du wirst aus der Gruppe entfernt und kannst nur durch Einladung wieder beitreten.")
             }
             .sheet(isPresented: $showAddMember) {
-                AddMemberView(groupId: group.id) { newMember in
-                    Task {
-                        await loadMembers()
-                    }
+                AddMemberView(groupId: group.id) {
+                    Task { await loadMembers() }
                 }
             }
             .sheet(isPresented: $showOwnerTransferSheet) {
@@ -238,41 +119,144 @@ struct GroupSettingsView: View {
                     }
                 )
             }
-            .onAppear {
-                Task {
-                    await resolveUserRole()
-                    await loadMembers()
+            .task {
+                await loadMembersAndResolveRole()
+            }
+        }
+    }
+    
+    // MARK: - Sections
+    
+    private var groupNameSection: some View {
+        Section("Gruppenname") {
+            if canEditGroup {
+                TextField("Gruppenname", text: $name)
+                    .disabled(isSaving)
+            } else {
+                Text(group.name)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    private var membersSection: some View {
+        Section("Mitglieder") {
+            if isLoadingMembers {
+                LoadingRow(text: "Lade Mitglieder...")
+            } else if members.isEmpty {
+                Text("Noch keine Mitglieder")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(members) { member in
+                    MemberRowView(
+                        member: member,
+                        profileImage: memberProfileImages[member.user_id],
+                        showRemoveButton: canRemoveMember(member),
+                        onRemove: {
+                            memberToRemove = member
+                            showRemoveMemberConfirm = true
+                        }
+                    )
+                }
+            }
+            
+            if canEditGroup {
+                Button {
+                    showAddMember = true
+                } label: {
+                    Label("Mitglied hinzufügen", systemImage: "person.badge.plus")
                 }
             }
         }
     }
-
-    @MainActor
-    private func setError(_ message: String) {
-        errorMessage = message
+    
+    private var leaveGroupSection: some View {
+        Section {
+            Button(role: .destructive) {
+                if isOwner {
+                    showOwnerTransferSheet = true
+                } else {
+                    showLeaveConfirm = true
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                    Text(isOwner ? "Gruppe verlassen & Besitzer transferieren" : "Gruppe verlassen")
+                }
+            }
+            .disabled(isDeleting)
+        } footer: {
+            Text(isOwner
+                 ? "Als Besitzer musst du einen neuen Besitzer auswählen, bevor du die Gruppe verlassen kannst."
+                 : "Du kannst diese Gruppe jederzeit verlassen.")
+        }
     }
-
-    private func resolveUserRole() async {
+    
+    private var deleteGroupSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("Gruppe löschen", systemImage: "trash")
+            }
+            .disabled(isDeleting)
+        } footer: {
+            Text("Nur der Besitzer kann die Gruppe löschen.")
+        }
+    }
+    
+    @ViewBuilder
+    private var errorSection: some View {
+        if let errorMessage {
+            Section {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+    
+    // MARK: - Helper
+    
+    private func canRemoveMember(_ member: GroupMember) -> Bool {
+        canEditGroup &&
+        member.user_id != group.owner_id &&
+        member.user_id != currentUserId
+    }
+    
+    // MARK: - Data Loading
+    
+    private func loadMembersAndResolveRole() async {
+        await MainActor.run {
+            isLoadingMembers = true
+            errorMessage = nil
+        }
+        
         do {
             let uid = try await authRepo.currentUserId()
+            let fetchedMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
             
             let isUserOwner = (uid == group.owner_id)
-            
-            let groupMembers = try await groupRepo.fetchGroupMembers(groupId: group.id)
-            let currentUserMember = groupMembers.first { $0.user_id == uid }
+            let currentUserMember = fetchedMembers.first { $0.user_id == uid }
             let isUserAdmin = currentUserMember?.role == .admin
             
             await MainActor.run {
                 currentUserId = uid
                 isOwner = isUserOwner
                 isAdmin = isUserAdmin
-                print("✅ User Rolle: Owner=\(isOwner), Admin=\(isAdmin), UserID=\(uid)")
+                members = fetchedMembers
+                isLoadingMembers = false
             }
+            
+            await loadMemberProfileImages()
+            
         } catch {
             await MainActor.run {
+                isLoadingMembers = false
                 currentUserId = nil
                 isOwner = false
                 isAdmin = false
+                errorMessage = GroupSettingsError.loadMembersFailed(error).message
             }
         }
     }
@@ -291,18 +275,16 @@ struct GroupSettingsView: View {
                 isLoadingMembers = false
             }
             
-            // 👈 NEU: Profilbilder für alle Mitglieder laden
             await loadMemberProfileImages()
             
         } catch {
             await MainActor.run {
                 isLoadingMembers = false
-                setError("Mitglieder konnten nicht geladen werden: \(error.localizedDescription)")
+                errorMessage = GroupSettingsError.loadMembersFailed(error).message
             }
         }
     }
     
-    // 👈 NEU: Profilbilder laden
     private func loadMemberProfileImages() async {
         for member in members {
             if let image = await ProfileImageService.shared.getCachedProfileImage(for: member.user_id) {
@@ -312,34 +294,37 @@ struct GroupSettingsView: View {
             }
         }
     }
-
-    private func removeMember(_ member: GroupMember) {
-        Task {
-            do {
-                try await groupRepo.removeMember(groupId: group.id, userId: member.user_id)
-                await MainActor.run {
-                    members.removeAll { $0.user_id == member.user_id }
-                    memberProfileImages.removeValue(forKey: member.user_id)
-                    memberToRemove = nil
-                }
-            } catch {
-                await MainActor.run {
-                    setError("Mitglied konnte nicht entfernt werden: \(error.localizedDescription)")
-                    memberToRemove = nil
-                }
+    
+    // MARK: - Actions
+    
+    private func removeMember(_ member: GroupMember) async {
+        do {
+            try await groupRepo.removeMember(groupId: group.id, userId: member.user_id)
+            await MainActor.run {
+                members.removeAll { $0.user_id == member.user_id }
+                memberProfileImages.removeValue(forKey: member.user_id)
+                memberToRemove = nil
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = GroupSettingsError.removeMemberFailed(error).message
+                memberToRemove = nil
             }
         }
     }
-
+    
     private func save() async {
         guard !nameTrimmed.isEmpty, nameTrimmed != group.name else { return }
+        
         await MainActor.run {
             errorMessage = nil
             isSaving = true
         }
+        
         do {
             try await groupRepo.rename(groupId: group.id, to: nameTrimmed)
             let updated = AppGroup(id: group.id, name: nameTrimmed, owner_id: group.owner_id, user: group.user)
+            
             await MainActor.run {
                 onUpdated(updated)
                 isSaving = false
@@ -348,16 +333,17 @@ struct GroupSettingsView: View {
         } catch {
             await MainActor.run {
                 isSaving = false
-                setError("Konnte nicht speichern: \(error.localizedDescription)")
+                errorMessage = GroupSettingsError.saveFailed(error).message
             }
         }
     }
-
+    
     private func deleteGroup() async {
         await MainActor.run {
             errorMessage = nil
             isDeleting = true
         }
+        
         do {
             try await groupRepo.delete(groupId: group.id)
             await MainActor.run {
@@ -367,7 +353,7 @@ struct GroupSettingsView: View {
         } catch {
             await MainActor.run {
                 isDeleting = false
-                setError("Löschen fehlgeschlagen: \(error.localizedDescription)")
+                errorMessage = GroupSettingsError.deleteFailed(error).message
             }
         }
     }
@@ -380,7 +366,6 @@ struct GroupSettingsView: View {
         
         do {
             try await groupRepo.leaveGroup(groupId: group.id)
-            
             await MainActor.run {
                 isDeleting = false
                 dismiss()
@@ -388,23 +373,120 @@ struct GroupSettingsView: View {
         } catch {
             await MainActor.run {
                 isDeleting = false
-                setError("Gruppe verlassen fehlgeschlagen: \(error.localizedDescription)")
+                errorMessage = GroupSettingsError.leaveFailed(error).message
             }
         }
     }
 }
 
-extension AppUser {
-    var initials: String {
-        let comps = display_name.split(separator: " ")
-        let first = comps.first?.first.map(String.init) ?? ""
-        let last = comps.dropFirst().first?.first.map(String.init) ?? ""
-        return (first + last).uppercased()
+// MARK: - Error Messages
+private enum GroupSettingsError {
+    case loadMembersFailed(Error)
+    case removeMemberFailed(Error)
+    case saveFailed(Error)
+    case deleteFailed(Error)
+    case leaveFailed(Error)
+    case transferFailed(Error)
+    case inviteFailed(Error)
+    
+    var message: String {
+        switch self {
+        case .loadMembersFailed(let error):
+            return "Mitglieder konnten nicht geladen werden: \(error.localizedDescription)"
+        case .removeMemberFailed(let error):
+            return "Mitglied konnte nicht entfernt werden: \(error.localizedDescription)"
+        case .saveFailed(let error):
+            return "Konnte nicht speichern: \(error.localizedDescription)"
+        case .deleteFailed(let error):
+            return "Löschen fehlgeschlagen: \(error.localizedDescription)"
+        case .leaveFailed(let error):
+            return "Gruppe verlassen fehlgeschlagen: \(error.localizedDescription)"
+        case .transferFailed(let error):
+            return "Transfer fehlgeschlagen: \(error.localizedDescription)"
+        case .inviteFailed(let error):
+            return "Fehler: \(error.localizedDescription)"
+        }
     }
 }
 
+// MARK: - Reusable Components
+
+private struct MemberAvatarView: View {
+    let image: UIImage?
+    var size: CGFloat = 36
+    
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image("Avatar_Default")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+private struct MemberRowView: View {
+    let member: GroupMember
+    let profileImage: UIImage?
+    let showRemoveButton: Bool
+    let onRemove: () -> Void
+    
+    var body: some View {
+        HStack {
+            MemberAvatarView(image: profileImage)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.memberUser.display_name)
+                    .font(.body)
+                Text(member.role.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            if showRemoveButton {
+                Button(role: .destructive) {
+                    onRemove()
+                } label: {
+                    Image(systemName: "person.fill.xmark")
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct LoadingRow: View {
+    let text: String
+    
+    var body: some View {
+        HStack {
+            ProgressView()
+                .scaleEffect(0.8)
+            Text(text)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - TransferOwnershipView
 struct TransferOwnershipView: View {
     @Environment(\.dismiss) private var dismiss
+    
     let group: AppGroup
     let members: [GroupMember]
     let onOwnershipTransferred: () -> Void
@@ -412,13 +494,14 @@ struct TransferOwnershipView: View {
     @State private var selectedNewOwner: UUID?
     @State private var isTransferring = false
     @State private var errorMessage: String?
+    @State private var successMessage: String?
     
-    // 👈 NEU: Profilbilder
+    // Profilbilder von Cache laden
     @State private var memberProfileImages: [UUID: UIImage] = [:]
     
     private let groupRepo = SupabaseGroupRepository()
     
-    var availableMembers: [GroupMember] {
+    private var availableMembers: [GroupMember] {
         members.filter { $0.user_id != group.owner_id }
     }
     
@@ -432,24 +515,7 @@ struct TransferOwnershipView: View {
                     } else {
                         ForEach(availableMembers) { member in
                             HStack {
-                                // 👈 NEU: Profilbild
-                                Group {
-                                    if let profileImage = memberProfileImages[member.user_id] {
-                                        Image(uiImage: profileImage)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    } else {
-                                        Image("Avatar_Default")
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    }
-                                }
-                                .frame(width: 36, height: 36)
-                                .clipShape(Circle())
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                                )
+                                MemberAvatarView(image: memberProfileImages[member.user_id])
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(member.memberUser.display_name)
@@ -485,6 +551,14 @@ struct TransferOwnershipView: View {
                             .foregroundStyle(.red)
                     }
                 }
+                
+                if let successMessage {
+                    Section {
+                        Text(successMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.green)
+                    }
+                }
             }
             .navigationTitle("Besitzer transferieren")
             .navigationBarTitleDisplayMode(.inline)
@@ -495,20 +569,25 @@ struct TransferOwnershipView: View {
                 }
                 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Transferieren") {
+                    Button {
                         Task { await transferOwnership() }
+                    } label: {
+                        if isTransferring {
+                            ProgressView()
+                        } else {
+                            Text("Transferieren")
+                        }
                     }
                     .disabled(selectedNewOwner == nil || isTransferring)
                 }
             }
-            // 👈 NEU: Profilbilder laden
             .task {
                 await loadMemberProfileImages()
             }
         }
     }
     
-    // 👈 NEU: Profilbilder laden
+    // Profilbilder von Cache laden
     private func loadMemberProfileImages() async {
         for member in availableMembers {
             if let image = await ProfileImageService.shared.getCachedProfileImage(for: member.user_id) {
@@ -519,45 +598,69 @@ struct TransferOwnershipView: View {
         }
     }
     
+    // Transfer ZUERST ausführen, dann erst Erfolg/Fehler anzeigen
     private func transferOwnership() async {
         guard let newOwnerId = selectedNewOwner else { return }
         
         await MainActor.run {
             errorMessage = nil
+            successMessage = nil
             isTransferring = true
         }
         
         do {
+            // 1. Erst Transfer durchführen
             try await groupRepo.transferOwnership(groupId: group.id, newOwnerId: newOwnerId)
+            
+            // 2. Dann Gruppe verlassen
             try await groupRepo.leaveGroup(groupId: group.id)
             
+            // 3. Nur bei Erfolg: Bestätigung anzeigen und schließen
             await MainActor.run {
                 isTransferring = false
+                successMessage = "✅ Besitzer erfolgreich transferiert!"
+            }
+            
+            // Kurz warten, dann schließen
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            await MainActor.run {
                 onOwnershipTransferred()
                 dismiss()
             }
+            
         } catch {
+            // Bei Fehler: Fehlermeldung anzeigen, NICHT schließen
             await MainActor.run {
                 isTransferring = false
-                errorMessage = "Transfer fehlgeschlagen: \(error.localizedDescription)"
+                errorMessage = "❌ Transfer fehlgeschlagen: \(error.localizedDescription)"
             }
         }
     }
 }
 
+// MARK: - AddMemberView
 struct AddMemberView: View {
     @Environment(\.dismiss) private var dismiss
+    
     let groupId: UUID
-    let onMemberAdded: (GroupMember) -> Void
+    let onMemberAdded: () -> Void
     
     @State private var email = ""
     @State private var selectedRole: role = .user
     @State private var isAdding = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
-    @State private var shouldAutoDismiss = false
     
     private let groupRepo = SupabaseGroupRepository()
+    
+    private var emailTrimmed: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    
+    private var canInvite: Bool {
+        !emailTrimmed.isEmpty && !isAdding
+    }
     
     var body: some View {
         NavigationStack {
@@ -584,18 +687,13 @@ struct AddMemberView: View {
                 
                 if isAdding {
                     Section {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Lade ein...")
-                                .foregroundStyle(.secondary)
-                        }
+                        LoadingRow(text: "Lade ein...")
                     }
                 }
                 
                 if let errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text("❌ \(errorMessage)")
                             .foregroundStyle(.red)
                             .font(.caption)
                     }
@@ -603,7 +701,7 @@ struct AddMemberView: View {
                 
                 if let successMessage {
                     Section {
-                        Text(successMessage)
+                        Text("✅ \(successMessage)")
                             .foregroundStyle(.green)
                             .font(.caption)
                     }
@@ -618,56 +716,37 @@ struct AddMemberView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Einladen") { Task { await inviteMember() } }
-                        .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
-                }
-            }
-            .onChange(of: shouldAutoDismiss) { oldValue, newValue in
-                if newValue {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        dismiss()
-                    }
+                        .disabled(!canInvite)
                 }
             }
         }
     }
     
     private func inviteMember() async {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
         await MainActor.run {
             errorMessage = nil
             successMessage = nil
-            shouldAutoDismiss = false
             isAdding = true
         }
         
         do {
-            try await groupRepo.inviteMember(groupId: groupId, email: trimmedEmail, role: selectedRole)
+            try await groupRepo.inviteMember(groupId: groupId, email: emailTrimmed, role: selectedRole)
             
             await MainActor.run {
-                successMessage = "✅ \(trimmedEmail) wurde als \(selectedRole.displayName) eingeladen!"
+                successMessage = "\(emailTrimmed) wurde als \(selectedRole.displayName) eingeladen!"
                 isAdding = false
-                shouldAutoDismiss = true
-                
-                let tempMember = GroupMember(
-                    user_id: UUID(),
-                    group_id: groupId,
-                    role: selectedRole,
-                    joined_at: Date(),
-                    user: AppUser(
-                        id: UUID(),
-                        display_name: trimmedEmail,
-                        email: trimmedEmail
-                    )
-                )
-                onMemberAdded(tempMember)
+                onMemberAdded()
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await MainActor.run {
+                dismiss()
             }
             
         } catch {
             await MainActor.run {
-                errorMessage = "❌ Fehler: \(error.localizedDescription)"
+                errorMessage = GroupSettingsError.inviteFailed(error).message
                 isAdding = false
-                shouldAutoDismiss = false
             }
         }
     }

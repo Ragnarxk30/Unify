@@ -47,12 +47,12 @@ struct Message: Identifiable, Codable {
     let content: String
     let sent_by: UUID
     let sent_at: Date
+    var is_edited: Bool = false  // ✅ Existiert
     let user: AppUser?
     
-    // 👈 NEUE FELDER FÜR SPRACHNACHRICHTEN
-    let message_type: String?  // "text" oder "voice"
-    let voice_duration: Int?   // Dauer in Sekunden
-    let voice_url: String?     // URL zur Audio-Datei
+    let message_type: String?
+    let voice_duration: Int?
+    let voice_url: String?
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -60,13 +60,14 @@ struct Message: Identifiable, Codable {
         case content
         case sent_by
         case sent_at
+        case is_edited  // 👈 FEHLT! Hinzufügen!
         case user
         case message_type
         case voice_duration
         case voice_url
     }
     
-    // 👈 COMPUTED PROPERTIES FÜR BEQUEMLICHKEIT
+    //  COMPUTED PROPERTIES FÜR BEQUEMLICHKEIT
     var isVoiceMessage: Bool {
         message_type == "voice"
     }

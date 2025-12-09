@@ -2,249 +2,125 @@ import SwiftUI
 import Supabase
 import PhotosUI
 
+// MARK: - SettingsView
 struct SettingsView: View {
     @EnvironmentObject var session: SessionStore
-
+    
     @AppStorage("appAppearance") private var appAppearance: String = "system"
-    @State private var isLoading = false
     @State private var alertMessage: String?
     
     // Profilbild State
     @State private var hasProfileImage = false
-    @State private var profileImageURL: String = ""
     @State private var profileImage: UIImage?
-
+    
     // Editing state
     @State private var isEditingName = false
     @State private var editedDisplayName: String = ""
     @State private var isSavingName = false
     
-    // NEU: Email ändern
+    // Email ändern
     @State private var isEditingEmail = false
     @State private var editedEmail: String = ""
     @State private var isSavingEmail = false
-
+    
+    // Passwort ändern
+    @State private var isEditingPassword = false
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+    @State private var isChangingPassword = false
+    
     @State private var showPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var selectedProfileImageData: Data?
     @State private var isUploadingImage = false
     
-    // NEU: Account Löschen
+    // Account Löschen
     @State private var showDeleteAccountConfirm = false
     @State private var isDeletingAccount = false
-
-    // Passwort ändern States
-    @State private var isChangingPassword = false
-    @State private var showChangePasswordSheet = false
-    @State private var newPassword = ""
-    @State private var confirmPassword = ""
-
     
     // Profile Image Service
     @StateObject private var profileImageService = ProfileImageService()
-
+    
     var body: some View {
         NavigationStack {
             Form {
-                // MARK: - Profil
+                // MARK: - Profil Section
                 Section {
                     if let user = session.currentUser {
                         if isEditingName {
-                            // Bearbeiten Anzeigename
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Anzeigename bearbeiten")
-                                    .font(.headline)
-
-                                TextField("Anzeigename", text: $editedDisplayName)
-                                    .textInputAutocapitalization(.words)
-                                    .autocorrectionDisabled(false)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .fill(Color(.secondarySystemBackground))
-                                    )
-
-                                HStack {
-                                    Button("Abbrechen") {
-                                        isEditingName = false
-                                        editedDisplayName = user.display_name
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(isSavingName)
-
-                                    Spacer()
-
-                                    Button {
-                                        Task { await saveDisplayName() }
-                                    } label: {
-                                        if isSavingName {
-                                            ProgressView().tint(.white)
-                                        } else {
-                                            Text("Speichern")
-                                        }
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(
-                                        isSavingName ||
-                                        editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                        editedDisplayName == user.display_name
-                                    )
-                                }
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color(.secondarySystemBackground))
+                            EditNameView(
+                                editedDisplayName: $editedDisplayName,
+                                isSavingName: isSavingName,
+                                currentName: user.display_name,
+                                onCancel: {
+                                    isEditingName = false
+                                    editedDisplayName = user.display_name
+                                },
+                                onSave: { Task { await saveDisplayName() } }
                             )
-                            .listRowBackground(Color.clear)
+                        } else if isEditingEmail {
+                            EditEmailView(
+                                editedEmail: $editedEmail,
+                                isSavingEmail: isSavingEmail,
+                                currentEmail: user.email,
+                                onCancel: {
+                                    isEditingEmail = false
+                                    editedEmail = user.email
+                                },
+                                onSave: { Task { await changeEmail() } }
+                            )
+                        } else if isEditingPassword {
+                            EditPasswordView(
+                                newPassword: $newPassword,
+                                confirmPassword: $confirmPassword,
+                                isChangingPassword: isChangingPassword,
+                                onCancel: {
+                                    isEditingPassword = false
+                                    newPassword = ""
+                                    confirmPassword = ""
+                                },
+                                onSave: { Task { await changePassword() } }
+                            )
                         } else {
-                            // Anzeige
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack(alignment: .center, spacing: 12) {
-                                    // Avatar mit Asset-Fallback und Upload-Funktionalität
-                                    Menu {
-                                        Button {
-                                            showPhotoPicker = true
-                                        } label: {
-                                            Label("Profilbild ändern", systemImage: "photo")
-                                        }
-                                        
-                                        if hasProfileImage {
-                                            Button(role: .destructive) {
-                                                Task { await deleteProfileImage() }
-                                            } label: {
-                                                Label("Profilbild löschen", systemImage: "trash")
-                                            }
-                                        }
-                                    } label: {
-                                        Group {
-                                            if isUploadingImage {
-                                                ProgressView()
-                                                    .frame(width: 46, height: 46)
-                                            } else if let profileImage = profileImage {
-                                                // Hochgeladenes Bild
-                                                Image(uiImage: profileImage)
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            } else if hasProfileImage {
-                                                // Fallback: System Icon wenn Bild existiert aber nicht geladen
-                                                Image(systemName: "person.circle.fill")
-                                                    .symbolRenderingMode(.hierarchical)
-                                                    .foregroundStyle(.blue)
-                                                    .font(.system(size: 40))
-                                            } else {
-                                                // Asset "Avatar_Default" als Fallback
-                                                Image("Avatar_Default")
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            }
-                                        }
-                                        .frame(width: 46, height: 46)
-                                        .clipShape(Circle())
-                                        .overlay(
-                                            Circle()
-                                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                                        )
-                                    }
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(user.display_name)
-                                            .font(.headline)
-                                        Text(user.email)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    Menu {
-                                        Button {
-                                            editedDisplayName = user.display_name
-                                            isEditingName = true
-                                        } label: {
-                                            Label("Anzeigename bearbeiten", systemImage: "pencil")
-                                        }
-                                        
-                                        // Passwort ändern Button
-                                        Button {
-                                            showChangePasswordSheet = true
-                                        } label: {
-                                            Label("Passwort ändern", systemImage: "key")
-                                        }
-                                        
-                                        // NEU: Email ändern
-                                        Button {
-                                            editedEmail = user.email
-                                            isEditingEmail = true
-                                        } label: {
-                                            Label("E-Mail ändern", systemImage: "envelope")
-                                        }
-
-                                        Button {
-                                            showPhotoPicker = true
-                                        } label: {
-                                            Label("Profilbild ändern", systemImage: "photo")
-                                        }
-                                        
-                                        if hasProfileImage {
-                                            Button(role: .destructive) {
-                                                Task { await deleteProfileImage() }
-                                            } label: {
-                                                Label("Profilbild löschen", systemImage: "trash")
-                                            }
-                                        }
-                                    } label: {
-                                        Image(systemName: "gearshape.fill")
-                                            .font(.system(size: 18, weight: .semibold))
-                                            .foregroundStyle(.secondary)
-                                            .padding(8)
-                                            .background(
-                                                Circle()
-                                                    .fill(Color(.secondarySystemBackground))
-                                            )
-                                    }
+                            ProfileHeaderView(
+                                user: user,
+                                profileImage: profileImage,
+                                hasProfileImage: hasProfileImage,
+                                isUploadingImage: isUploadingImage,
+                                onEditName: {
+                                    editedDisplayName = user.display_name
+                                    isEditingName = true
+                                },
+                                onEditEmail: {
+                                    editedEmail = user.email
+                                    isEditingEmail = true
+                                },
+                                onChangePassword: {
+                                    newPassword = ""
+                                    confirmPassword = ""
+                                    isEditingPassword = true
+                                },
+                                onChangePhoto: {
+                                    showPhotoPicker = true
+                                },
+                                onDeletePhoto: {
+                                    Task { await deleteProfileImage() }
                                 }
-
-                                Divider()
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color(.secondarySystemBackground))
                             )
-                            .listRowBackground(Color.clear)
                         }
                     } else {
-                        // Placeholder wenn kein currentUser (lädt)
-                        HStack(spacing: 12) {
-                            Image(systemName: "person.circle")
-                                .font(.system(size: 32))
-                            VStack(alignment: .leading) {
-                                Text("Angemeldet als")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                Text("Lade …")
-                                    .redacted(reason: .placeholder)
-                            }
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color(.secondarySystemBackground))
-                        )
+                        ProfilePlaceholderView()
                     }
                 }
-
+                
                 // MARK: - Erscheinungsbild
                 Section("Erscheinungsbild") {
-                    HStack(spacing: 8) {
-                        appearanceButton(title: "Hell", key: "light", style: .light)
-                        appearanceButton(title: "Dunkel", key: "dark", style: .dark)
-                        appearanceButton(title: "System", key: "system", style: .unspecified)
-                    }
+                    AppearancePickerView(
+                        appAppearance: $appAppearance,
+                        onAppearanceChange: setAppearance
+                    )
                 }
-
+                
                 // MARK: - Abmelden
                 Section {
                     Button(role: .destructive) {
@@ -252,9 +128,9 @@ struct SettingsView: View {
                             do {
                                 try await SupabaseAuthRepository().signOut()
                                 await MainActor.run { session.markSignedOut() }
-                                alertMessage = "✅ Erfolgreich abgemeldet."
+                                alertMessage = SettingsAlertMessage.signOutSuccess
                             } catch {
-                                alertMessage = "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
+                                alertMessage = SettingsAlertMessage.signOutError(error)
                             }
                         }
                     } label: {
@@ -262,7 +138,7 @@ struct SettingsView: View {
                     }
                 }
                 
-                // NEU: Account löschen
+                // MARK: - Account löschen
                 Section {
                     Button(role: .destructive) {
                         showDeleteAccountConfirm = true
@@ -277,7 +153,7 @@ struct SettingsView: View {
                     }
                     .disabled(isDeletingAccount)
                 } footer: {
-                    Text("Du erhältst keine Bestätigungsmail und kannst dein Konto nicht wiederherstellen.")
+                    Text("Diese Aktion kann nicht rückgängig gemacht werden. Alle deine Daten werden dauerhaft gelöscht.")
                         .font(.caption)
                 }
             }
@@ -289,7 +165,6 @@ struct SettingsView: View {
                     Text(message)
                 }
             }
-            // NEU: Account Löschen Bestätigung
             .confirmationDialog(
                 "Account wirklich löschen?",
                 isPresented: $showDeleteAccountConfirm,
@@ -300,7 +175,7 @@ struct SettingsView: View {
                 }
                 Button("Abbrechen", role: .cancel) { }
             } message: {
-                Text("Du erhältst eine E-Mail zur Bestätigung. Diese Aktion kann nicht rückgängig gemacht werden. Alle deine Gruppen, Nachrichten und Daten werden dauerhaft gelöscht.")
+                Text("Diese Aktion kann nicht rückgängig gemacht werden. Alle deine Gruppen, Nachrichten und Daten werden dauerhaft gelöscht.")
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
             .onChange(of: photoPickerItem) { _, newItem in
@@ -317,42 +192,9 @@ struct SettingsView: View {
             .task {
                 await checkProfilePictureStatus()
             }
-            // NEU: Email ändern Sheet
-            .sheet(isPresented: $isEditingEmail) {
-                ChangeEmailSheet(
-                    currentEmail: session.currentUser?.email ?? "",
-                    editedEmail: $editedEmail,
-                    isSaving: $isSavingEmail,
-                    onSave: {
-                        await changeEmail()
-                    },
-                    onCancel: {
-                        isEditingEmail = false
-                        editedEmail = session.currentUser?.email ?? ""
-                    }
-                )
-                .presentationDetents([.medium])
-            }
-            // NEU: Passwort ändern Sheet
-            .sheet(isPresented: $showChangePasswordSheet) {
-                ChangePasswordSheet(
-                    newPassword: $newPassword,
-                    confirmPassword: $confirmPassword,
-                    isChanging: $isChangingPassword,
-                    onChangePassword: {
-                        await changePassword()
-                    },
-                    onCancel: {
-                        showChangePasswordSheet = false
-                        newPassword = ""
-                        confirmPassword = ""
-                    }
-                )
-                .presentationDetents([.medium])
-            }
         }
     }
-
+    
     // MARK: - Account sofort löschen
     private func deleteAccount() async {
         await MainActor.run {
@@ -361,8 +203,6 @@ struct SettingsView: View {
         
         do {
             let authService = AuthService()
-            
-            // Sofort löschen ohne Email
             try await authService.deleteAccountImmediately()
             
             await MainActor.run {
@@ -373,12 +213,12 @@ struct SettingsView: View {
         } catch {
             await MainActor.run {
                 isDeletingAccount = false
-                alertMessage = "❌ Account-Löschung fehlgeschlagen: \(error.localizedDescription)"
+                alertMessage = SettingsAlertMessage.deleteAccountError(error)
             }
             print("❌ Delete account error: \(error)")
         }
     }
-
+    
     // MARK: - Profilbild Funktionen
     private func checkProfilePictureStatus() async {
         do {
@@ -414,7 +254,7 @@ struct SettingsView: View {
     private func uploadProfileImage(_ imageData: Data) async {
         guard let uiImage = UIImage(data: imageData) else {
             await MainActor.run {
-                alertMessage = "❌ Bild konnte nicht verarbeitet werden"
+                alertMessage = SettingsAlertMessage.imageProcessingError
             }
             return
         }
@@ -431,13 +271,13 @@ struct SettingsView: View {
                 profileImage = uiImage
                 hasProfileImage = true
                 isUploadingImage = false
-                alertMessage = "✅ Profilbild erfolgreich aktualisiert"
+                alertMessage = SettingsAlertMessage.profileImageUpdated
             }
             
         } catch {
             await MainActor.run {
                 isUploadingImage = false
-                alertMessage = "❌ Profilbild konnte nicht hochgeladen werden: \(error.localizedDescription)"
+                alertMessage = SettingsAlertMessage.profileImageUploadError(error)
             }
         }
     }
@@ -455,13 +295,13 @@ struct SettingsView: View {
                 profileImage = nil
                 hasProfileImage = false
                 isUploadingImage = false
-                alertMessage = "✅ Profilbild erfolgreich gelöscht"
+                alertMessage = SettingsAlertMessage.profileImageDeleted
             }
             
         } catch {
             await MainActor.run {
                 isUploadingImage = false
-                alertMessage = "❌ Profilbild konnte nicht gelöscht werden: \(error.localizedDescription)"
+                alertMessage = SettingsAlertMessage.profileImageDeleteError(error)
             }
         }
     }
@@ -477,13 +317,13 @@ struct SettingsView: View {
             .eq("id", value: userId.uuidString)
             .execute()
     }
-
+    
     // MARK: - Anzeigename speichern
     func saveDisplayName() async {
         guard let current = session.currentUser else { return }
         let newName = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty, newName != current.display_name else { return }
-
+        
         await MainActor.run { isSavingName = true }
         do {
             struct UpdatePayload: Encodable {
@@ -496,7 +336,7 @@ struct SettingsView: View {
                 .select("id, display_name, email")
                 .single()
                 .execute() as PostgrestResponse<AppUser>
-
+            
             let refreshed: AppUser = try await supabase
                 .from("user")
                 .select("id, display_name, email")
@@ -504,34 +344,33 @@ struct SettingsView: View {
                 .single()
                 .execute()
                 .value
-
+            
             await MainActor.run {
                 session.setCurrentUser(refreshed)
                 isSavingName = false
                 isEditingName = false
-                alertMessage = "✅ Anzeigename aktualisiert."
+                alertMessage = SettingsAlertMessage.displayNameUpdated
             }
         } catch {
             await MainActor.run {
                 isSavingName = false
-                alertMessage = "❌ Konnte Anzeigenamen nicht speichern: \(error.localizedDescription)"
+                alertMessage = SettingsAlertMessage.displayNameError(error)
             }
         }
     }
     
-    // MARK: - Email ändern (mit deiner SQL Function)
+    // MARK: - Email ändern
     private func changeEmail() async {
         let newEmail = editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !newEmail.isEmpty, newEmail != session.currentUser?.email else { return }
         
-        // Email-Validierung
-        guard newEmail.contains("@"), newEmail.contains(".") else {
+        guard EmailValidator.isValid(newEmail) else {
             await MainActor.run {
-                alertMessage = "❌ Bitte gib eine gültige E-Mail-Adresse ein."
+                alertMessage = SettingsAlertMessage.invalidEmail
             }
             return
         }
-
+        
         await MainActor.run { isSavingEmail = true }
         
         do {
@@ -541,21 +380,21 @@ struct SettingsView: View {
             await MainActor.run {
                 isSavingEmail = false
                 isEditingEmail = false
-                alertMessage = "✅ [AuthService] E-Mail wurde zu \(newEmail) geändert"
+                alertMessage = SettingsAlertMessage.emailChanged(newEmail)
             }
         } catch {
             await MainActor.run {
                 isSavingEmail = false
-                alertMessage = "❌ E-Mail konnte nicht geändert werden: \(error.localizedDescription)"
+                alertMessage = SettingsAlertMessage.emailChangeError(error)
             }
         }
     }
     
-    // MARK: - Passwort ändern (über SQL Function)
+    // MARK: - Passwort ändern
     private func changePassword() async {
         guard !newPassword.isEmpty, newPassword == confirmPassword else { return }
         guard newPassword.count >= 6 else { return }
-
+        
         await MainActor.run {
             isChangingPassword = true
         }
@@ -566,25 +405,554 @@ struct SettingsView: View {
             
             await MainActor.run {
                 isChangingPassword = false
-                showChangePasswordSheet = false
+                isEditingPassword = false
                 newPassword = ""
                 confirmPassword = ""
-                alertMessage = "✅ Passwort wurde erfolgreich geändert"
+                alertMessage = SettingsAlertMessage.passwordChanged
             }
             
         } catch {
             await MainActor.run {
                 isChangingPassword = false
-                alertMessage = "❌ Passwort konnte nicht geändert werden: \(error.localizedDescription)"
+                alertMessage = SettingsAlertMessage.passwordChangeError(error)
             }
         }
     }
+    
+    // MARK: - Appearance
+    private func setAppearance(_ style: UIUserInterfaceStyle) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+        windowScene.windows.forEach { window in
+            window.overrideUserInterfaceStyle = style
+        }
+    }
+}
 
-    // MARK: - Appearance Methods
-    func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
+// MARK: - Alert Messages
+private enum SettingsAlertMessage {
+    static let signOutSuccess = "✅ Erfolgreich abgemeldet."
+    static func signOutError(_ error: Error) -> String {
+        "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
+    }
+    static func deleteAccountError(_ error: Error) -> String {
+        "❌ Account-Löschung fehlgeschlagen: \(error.localizedDescription)"
+    }
+    static let imageProcessingError = "❌ Bild konnte nicht verarbeitet werden"
+    static let profileImageUpdated = "✅ Profilbild erfolgreich aktualisiert"
+    static func profileImageUploadError(_ error: Error) -> String {
+        "❌ Profilbild konnte nicht hochgeladen werden: \(error.localizedDescription)"
+    }
+    static let profileImageDeleted = "✅ Profilbild erfolgreich gelöscht"
+    static func profileImageDeleteError(_ error: Error) -> String {
+        "❌ Profilbild konnte nicht gelöscht werden: \(error.localizedDescription)"
+    }
+    static let displayNameUpdated = "✅ Benutzername aktualisiert."
+    static func displayNameError(_ error: Error) -> String {
+        "❌ Konnte Benutzername nicht speichern: \(error.localizedDescription)"
+    }
+    static let invalidEmail = "❌ Bitte gib eine gültige E-Mail-Adresse ein."
+    static func emailChanged(_ email: String) -> String {
+        "✅ E-Mail wurde zu \(email) geändert"
+    }
+    static func emailChangeError(_ error: Error) -> String {
+        "❌ E-Mail konnte nicht geändert werden: \(error.localizedDescription)"
+    }
+    static let passwordChanged = "✅ Passwort wurde erfolgreich geändert"
+    static func passwordChangeError(_ error: Error) -> String {
+        "❌ Passwort konnte nicht geändert werden: \(error.localizedDescription)"
+    }
+}
+
+// MARK: - Email Validator
+private enum EmailValidator {
+    static func isValid(_ email: String) -> Bool {
+        let emailRegex = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        return email.range(of: emailRegex, options: .regularExpression) != nil
+    }
+}
+
+// MARK: - Profile Header View
+private struct ProfileHeaderView: View {
+    let user: AppUser
+    let profileImage: UIImage?
+    let hasProfileImage: Bool
+    let isUploadingImage: Bool
+    let onEditName: () -> Void
+    let onEditEmail: () -> Void
+    let onChangePassword: () -> Void
+    let onChangePhoto: () -> Void
+    let onDeletePhoto: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                ProfileAvatarView(
+                    profileImage: profileImage,
+                    hasProfileImage: hasProfileImage,
+                    isUploadingImage: isUploadingImage,
+                    onChangePhoto: onChangePhoto,
+                    onDeletePhoto: onDeletePhoto
+                )
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(user.display_name)
+                        .font(.headline)
+                    Text(user.email)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                ProfileMenuButton(
+                    hasProfileImage: hasProfileImage,
+                    onEditName: onEditName,
+                    onEditEmail: onEditEmail,
+                    onChangePassword: onChangePassword,
+                    onChangePhoto: onChangePhoto,
+                    onDeletePhoto: onDeletePhoto
+                )
+            }
+            
+            Divider()
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
+    }
+}
+
+// MARK: - Profile Avatar View
+private struct ProfileAvatarView: View {
+    let profileImage: UIImage?
+    let hasProfileImage: Bool
+    let isUploadingImage: Bool
+    let onChangePhoto: () -> Void
+    let onDeletePhoto: () -> Void
+    
+    var body: some View {
+        Menu {
+            Button {
+                onChangePhoto()
+            } label: {
+                Label("Profilbild ändern", systemImage: "photo")
+            }
+            
+            if hasProfileImage {
+                Button(role: .destructive) {
+                    onDeletePhoto()
+                } label: {
+                    Label("Profilbild löschen", systemImage: "trash")
+                }
+            }
+        } label: {
+            Group {
+                if isUploadingImage {
+                    ProgressView()
+                        .frame(width: 46, height: 46)
+                } else if let profileImage = profileImage {
+                    Image(uiImage: profileImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else if hasProfileImage {
+                    Image(systemName: "person.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.blue)
+                        .font(.system(size: 40))
+                } else {
+                    Image("Avatar_Default")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+            }
+            .frame(width: 46, height: 46)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+            )
+        }
+    }
+}
+
+// MARK: - Profile Menu Button
+private struct ProfileMenuButton: View {
+    let hasProfileImage: Bool
+    let onEditName: () -> Void
+    let onEditEmail: () -> Void
+    let onChangePassword: () -> Void
+    let onChangePhoto: () -> Void
+    let onDeletePhoto: () -> Void
+    
+    var body: some View {
+        Menu {
+            Button {
+                onEditName()
+            } label: {
+                Label("Benutzername bearbeiten", systemImage: "pencil")
+            }
+            
+            Button {
+                onChangePassword()
+            } label: {
+                Label("Passwort ändern", systemImage: "key")
+            }
+            
+            Button {
+                onEditEmail()
+            } label: {
+                Label("E-Mail ändern", systemImage: "envelope")
+            }
+            
+            Button {
+                onChangePhoto()
+            } label: {
+                Label("Profilbild ändern", systemImage: "photo")
+            }
+            
+            if hasProfileImage {
+                Button(role: .destructive) {
+                    onDeletePhoto()
+                } label: {
+                    Label("Profilbild löschen", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(8)
+                .background(
+                    Circle()
+                        .fill(Color(.secondarySystemBackground))
+                )
+        }
+    }
+}
+
+// MARK: - Edit Name View
+private struct EditNameView: View {
+    @Binding var editedDisplayName: String
+    let isSavingName: Bool
+    let currentName: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    
+    private var canSave: Bool {
+        !isSavingName &&
+        !editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        editedDisplayName != currentName
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Benutzername bearbeiten")
+                .font(.headline)
+            
+            TextField("Benutzername", text: $editedDisplayName)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled(false)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemBackground))
+                )
+            
+            HStack {
+                Button("Abbrechen") {
+                    onCancel()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSavingName)
+                
+                Spacer()
+                
+                Button {
+                    onSave()
+                } label: {
+                    if isSavingName {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Speichern")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSave)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
+    }
+}
+
+// MARK: - Edit Email View
+private struct EditEmailView: View {
+    @Binding var editedEmail: String
+    let isSavingEmail: Bool
+    let currentEmail: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    
+    private var canSave: Bool {
+        !isSavingEmail &&
+        !editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        editedEmail.lowercased() != currentEmail.lowercased() &&
+        EmailValidator.isValid(editedEmail)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("E-Mail ändern")
+                .font(.headline)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Aktuelle E-Mail")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Text(currentEmail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(.tertiarySystemBackground).opacity(0.5))
+                    )
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Neue E-Mail")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                TextField("Neue E-Mail-Adresse", text: $editedEmail)
+                    .textContentType(.emailAddress)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(.tertiarySystemBackground))
+                    )
+            }
+            
+            if !editedEmail.isEmpty && !EmailValidator.isValid(editedEmail) {
+                Text("❌ Bitte gib eine gültige E-Mail-Adresse ein")
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+            
+            HStack {
+                Button("Abbrechen") {
+                    onCancel()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSavingEmail)
+                
+                Spacer()
+                
+                Button {
+                    onSave()
+                } label: {
+                    if isSavingEmail {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Speichern")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSave)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
+    }
+}
+
+// MARK: - Edit Password View
+private struct EditPasswordView: View {
+    @Binding var newPassword: String
+    @Binding var confirmPassword: String
+    let isChangingPassword: Bool
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    
+    @State private var showPassword = false
+    
+    private var passwordsMatch: Bool {
+        !newPassword.isEmpty && newPassword == confirmPassword
+    }
+    
+    private var isPasswordValid: Bool {
+        newPassword.count >= 6
+    }
+    
+    private var canSave: Bool {
+        !isChangingPassword && passwordsMatch && isPasswordValid
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Passwort ändern")
+                .font(.headline)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Neues Passwort")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Group {
+                    if showPassword {
+                        TextField("Neues Passwort", text: $newPassword)
+                    } else {
+                        SecureField("Neues Passwort", text: $newPassword)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemBackground))
+                )
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Passwort bestätigen")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Group {
+                    if showPassword {
+                        TextField("Passwort bestätigen", text: $confirmPassword)
+                    } else {
+                        SecureField("Passwort bestätigen", text: $confirmPassword)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemBackground))
+                )
+            }
+            
+            Button {
+                showPassword.toggle()
+            } label: {
+                Label(
+                    showPassword ? "Passwort verbergen" : "Passwort anzeigen",
+                    systemImage: showPassword ? "eye.slash" : "eye"
+                )
+                .font(.caption)
+            }
+            
+            // Validation Feedback
+            VStack(alignment: .leading, spacing: 4) {
+                if !newPassword.isEmpty && !isPasswordValid {
+                    Text("❌ Passwort muss mindestens 6 Zeichen lang sein")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                
+                if !confirmPassword.isEmpty && !passwordsMatch {
+                    Text("❌ Passwörter stimmen nicht überein")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                
+                if passwordsMatch && isPasswordValid {
+                    Text("✅ Passwörter stimmen überein")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+            }
+            
+            HStack {
+                Button("Abbrechen") {
+                    onCancel()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isChangingPassword)
+                
+                Spacer()
+                
+                Button {
+                    onSave()
+                } label: {
+                    if isChangingPassword {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Ändern")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSave)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
+    }
+}
+
+// MARK: - Profile Placeholder View
+private struct ProfilePlaceholderView: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.circle")
+                .font(.system(size: 32))
+            VStack(alignment: .leading) {
+                Text("Angemeldet als")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Lade …")
+                    .redacted(reason: .placeholder)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+}
+
+// MARK: - Appearance Picker View
+private struct AppearancePickerView: View {
+    @Binding var appAppearance: String
+    let onAppearanceChange: (UIUserInterfaceStyle) -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            appearanceButton(title: "Hell", key: "light", style: .light)
+            appearanceButton(title: "Dunkel", key: "dark", style: .dark)
+            appearanceButton(title: "System", key: "system", style: .unspecified)
+        }
+    }
+    
+    private func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
         Button {
             appAppearance = key
-            setAppearance(style)
+            onAppearanceChange(style)
         } label: {
             Text(title)
                 .font(.subheadline.weight(.semibold))
@@ -597,170 +965,5 @@ struct SettingsView: View {
                 .foregroundStyle(appAppearance == key ? .white : .primary)
         }
         .buttonStyle(.plain)
-    }
-
-    private func setAppearance(_ style: UIUserInterfaceStyle) {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        windowScene.windows.forEach { window in
-            window.overrideUserInterfaceStyle = style
-        }
-    }
-}
-
-// MARK: - Email ändern Sheet
-private struct ChangeEmailSheet: View {
-    let currentEmail: String
-    @Binding var editedEmail: String
-    @Binding var isSaving: Bool
-    let onSave: () async -> Void
-    let onCancel: () -> Void
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Text(currentEmail)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Text("Aktuelle E-Mail")
-                }
-                
-                Section {
-                    TextField("Neue E-Mail", text: $editedEmail)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .disabled(isSaving)
-                } header: {
-                    Text("Neue E-Mail-Adresse")
-                } footer: {
-                    Text("email wird sofort geändert und Du erhältst eine Bestätigungsmail.")
-                }
-            }
-            .navigationTitle("E-Mail ändern")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") {
-                        onCancel()
-                    }
-                    .disabled(isSaving)
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            await onSave()
-                        }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text("Speichern")
-                        }
-                    }
-                    .disabled(
-                        isSaving ||
-                        editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        editedEmail == currentEmail
-                    )
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Passwort ändern Sheet
-private struct ChangePasswordSheet: View {
-    @Binding var newPassword: String
-    @Binding var confirmPassword: String
-    @Binding var isChanging: Bool
-    let onChangePassword: () async -> Void
-    let onCancel: () -> Void
-    
-    @State private var showPassword = false
-    
-    private var passwordsMatch: Bool {
-        !newPassword.isEmpty && newPassword == confirmPassword
-    }
-    
-    private var isPasswordValid: Bool {
-        newPassword.count >= 6
-    }
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if showPassword {
-                            TextField("Neues Passwort", text: $newPassword)
-                            TextField("Passwort bestätigen", text: $confirmPassword)
-                        } else {
-                            SecureField("Neues Passwort", text: $newPassword)
-                            SecureField("Passwort bestätigen", text: $confirmPassword)
-                        }
-                        
-                        Button {
-                            showPassword.toggle()
-                        } label: {
-                            Label(
-                                showPassword ? "Passwort verbergen" : "Passwort anzeigen",
-                                systemImage: showPassword ? "eye.slash" : "eye"
-                            )
-                            .font(.caption)
-                        }
-                    }
-                } header: {
-                    Text("Neues Passwort")
-                } footer: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if !newPassword.isEmpty && !isPasswordValid {
-                            Text("❌ Passwort muss mindestens 6 Zeichen lang sein")
-                                .foregroundColor(.red)
-                                .font(.caption)
-                        }
-                        
-                        if !confirmPassword.isEmpty && !passwordsMatch {
-                            Text("❌ Passwörter stimmen nicht überein")
-                                .foregroundColor(.red)
-                                .font(.caption)
-                        }
-                        
-                        if passwordsMatch && isPasswordValid {
-                            Text("✅ Passwörter stimmen überein")
-                                .foregroundColor(.green)
-                                .font(.caption)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Passwort ändern")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") {
-                        onCancel()
-                    }
-                    .disabled(isChanging)
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            await onChangePassword()
-                        }
-                    } label: {
-                        if isChanging {
-                            ProgressView()
-                        } else {
-                            Text("Ändern")
-                        }
-                    }
-                    .disabled(isChanging || !passwordsMatch || !isPasswordValid)
-                }
-            }
-        }
     }
 }
