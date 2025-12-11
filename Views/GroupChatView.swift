@@ -1,7 +1,3 @@
-//
-//  GroupChatView.swift
-//
-
 import SwiftUI
 import Supabase
 
@@ -43,6 +39,12 @@ struct GroupChatView: View {
     @State private var messageToDelete: Message?
     @State private var showDeleteConfirmation = false
     @State private var showDeleteSelectedConfirmation = false
+    
+    // Profile Image Viewer
+    @State private var selectedProfileImage: UIImage?
+    @State private var selectedUserName: String?
+    @State private var showProfileImageViewer = false
+    @State private var selectedUserId: UUID?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -121,6 +123,19 @@ struct GroupChatView: View {
                 onCancel: cancelEditing
             )
         }
+        .fullScreenCover(isPresented: $showProfileImageViewer) {
+            ProfileImageViewerSheet(
+                image: $selectedProfileImage,
+                userName: $selectedUserName,
+                userId: $selectedUserId,
+                onDismiss: {
+                    showProfileImageViewer = false
+                    selectedProfileImage = nil
+                    selectedUserName = nil
+                    selectedUserId = nil
+                }
+            )
+        }
         .overlay {
             if isLoading {
                 LoadingOverlay(text: "Nachrichten werden geladen...")
@@ -140,7 +155,33 @@ struct GroupChatView: View {
                             isCurrentUser: isCurrentUser(message),
                             isSelected: isMessageSelected(message),
                             currentUserId: currentUserId,
-                            audioService: audioService
+                            audioService: audioService,
+                            onProfileImageTap: { image, name in
+                                print("🟦 onProfileImageTap CALLED")
+                                print("   - image is nil: \(image == nil)")
+                                print("   - name: \(name)")
+                                
+                                // Bestimme die richtige userId basierend auf wessen Bild es ist
+                                let userId = isCurrentUser(message) ? currentUserId : message.sent_by
+                                print("   - userId: \(userId)")
+                                
+                                // Setze State SOFORT
+                                selectedProfileImage = image
+                                selectedUserName = name
+                                selectedUserId = userId
+                                
+                                print("   - State gesetzt - selectedProfileImage is nil: \(selectedProfileImage == nil)")
+                                print("   - State gesetzt - selectedUserId: \(selectedUserId)")
+                                
+                                // Task für State-Update
+                                Task { @MainActor in
+                                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 Sekunden
+                                    print("🟩 ÖFFNE SHEET")
+                                    print("   - selectedProfileImage is nil: \(selectedProfileImage == nil)")
+                                    print("   - selectedUserId: \(selectedUserId)")
+                                    showProfileImageViewer = true
+                                }
+                            }
                         )
                         .id(message.id)
                         .onTapGesture {
@@ -654,34 +695,182 @@ struct GroupChatView: View {
     }
 }
 
+// MARK: - Profile Image Viewer Sheet
+struct ProfileImageViewerSheet: View {
+    @Binding var image: UIImage?
+    @Binding var userName: String?
+    @Binding var userId: UUID?
+    let onDismiss: () -> Void
+    
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var loadedImage: UIImage?
+    @State private var isLoading = false
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+                .gesture(
+                    DragGesture()
+                        .onEnded { value in
+                            if value.translation.height > 100 {
+                                onDismiss()
+                            }
+                        }
+                )
+            
+            // Zeige ProgressView während des Ladens
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.5)
+                    .zIndex(1)
+            }
+            
+            // Zeige Bild wenn vorhanden (entweder übergeben oder geladen)
+            if let displayImage = loadedImage ?? image {
+                Image(uiImage: displayImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 400, height: 550)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                let delta = value / lastScale
+                                lastScale = value
+                                scale = min(max(scale * delta, 1.0), 4.0)
+                            }
+                            .onEnded { _ in
+                                lastScale = 1.0
+                                if scale < 1.0 {
+                                    withAnimation(.spring()) {
+                                        scale = 1.0
+                                        offset = .zero
+                                    }
+                                }
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture()
+                            .onChanged { value in
+                                if scale > 1.0 {
+                                    offset = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                }
+                            }
+                            .onEnded { value in
+                                if scale > 1.0 {
+                                    lastOffset = offset
+                                } else if value.translation.height > 100 {
+                                    onDismiss()
+                                }
+                            }
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring()) {
+                            if scale > 1.0 {
+                                scale = 1.0
+                                offset = .zero
+                                lastOffset = .zero
+                            } else {
+                                scale = 2.0
+                            }
+                        }
+                    }
+                    .zIndex(1)
+            } else if !isLoading {
+                // Fallback: Zeige Default Avatar aus Assets
+                Image("Avatar_Default")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 300, height: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .zIndex(1)
+            }
+            
+            // X-Button - immer im Vordergrund
+            VStack {
+                HStack {
+                    Spacer()
+                    
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    .padding()
+                }
+                
+                Spacer()
+            }
+            .zIndex(100)
+        }
+        .task {
+            print("🟣 ProfileImageViewerSheet .task STARTED")
+            print("   - image parameter is nil: \(image == nil)")
+            print("   - userId parameter: \(userId)")
+            
+            // Wenn kein Bild übergeben wurde, versuche es zu laden
+            if image == nil, let userId = userId {
+                print("🟣 Kein Bild übergeben, starte Download für userId: \(userId)")
+                isLoading = true
+                loadedImage = await ProfileImageService.shared.getCachedProfileImage(for: userId)
+                isLoading = false
+                print("🟣 Download fertig - loadedImage is nil: \(loadedImage == nil)")
+            } else if image != nil {
+                print("🟣 Bild wurde übergeben, kein Download nötig")
+            } else {
+                print("🟣 Kein Bild UND keine userId - zeige Fallback")
+            }
+        }
+    }
+}
+
 // MARK: - Reusable Components
 
 private struct MessageAvatarView: View {
     let profileImage: UIImage?
     let isLoading: Bool
+    let onTap: () -> Void
     var size: CGFloat = ChatConstants.avatarSize
     
     var body: some View {
-        Group {
-            if isLoading {
-                ProgressView()
-                    .frame(width: size, height: size)
-            } else if let profileImage {
-                Image(uiImage: profileImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Image("Avatar_Default")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+        Button(action: onTap) {
+            Group {
+                if isLoading {
+                    ProgressView()
+                        .frame(width: size, height: size)
+                } else if let profileImage {
+                    Image(uiImage: profileImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image("Avatar_Default")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
             }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+            )
         }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
+        .buttonStyle(.plain)
     }
 }
 
@@ -940,6 +1129,7 @@ private struct ChatBubbleView: View {
     let isSelected: Bool
     let currentUserId: UUID?
     @ObservedObject var audioService: AudioRecorderService
+    let onProfileImageTap: (UIImage?, String) -> Void
     
     @State private var profileImage: UIImage?
     @State private var isLoadingImage = false
@@ -947,8 +1137,13 @@ private struct ChatBubbleView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if !isCurrentUser {
-                MessageAvatarView(profileImage: profileImage, isLoading: isLoadingImage)
-                    .onAppear { loadProfileImage(for: message.sent_by) }
+                MessageAvatarView(
+                    profileImage: profileImage,
+                    isLoading: isLoadingImage,
+                    onTap: {
+                        handleProfileImageTap(userName: message.sender.display_name)
+                    }
+                )
                 
                 messageContent
                 Spacer()
@@ -956,11 +1151,20 @@ private struct ChatBubbleView: View {
                 Spacer()
                 messageContent
                 
-                MessageAvatarView(profileImage: profileImage, isLoading: isLoadingImage)
-                    .onAppear { loadOwnProfileImage() }
+                MessageAvatarView(
+                    profileImage: profileImage,
+                    isLoading: isLoadingImage,
+                    onTap: {
+                        // Übergebe den echten Namen des aktuellen Users
+                        handleProfileImageTap(userName: message.sender.display_name)
+                    }
+                )
             }
         }
         .padding(.horizontal, 8)
+        .task(id: message.id) {
+            await loadProfileImage()
+        }
     }
     
     private var messageContent: some View {
@@ -980,7 +1184,6 @@ private struct ChatBubbleView: View {
                 }
             }
             
-            // ✅ KORRIGIERT: Font und Farbe auf HStack
             HStack(spacing: 4) {
                 Text(timeString(from: message.sent_at))
                 
@@ -1028,22 +1231,42 @@ private struct ChatBubbleView: View {
             .offset(x: isCurrentUser ? 4 : -4, y: 4)
     }
     
-    private func loadProfileImage(for userId: UUID) {
-        Task {
-            await MainActor.run { isLoadingImage = true }
-            
-            let image = await ProfileImageService.shared.getCachedProfileImage(for: userId)
-            
-            await MainActor.run {
-                profileImage = image
-                isLoadingImage = false
-            }
+    private func loadProfileImage() async {
+        guard profileImage == nil else { return }
+        
+        await MainActor.run {
+            isLoadingImage = true
+        }
+        
+        let userId = isCurrentUser ? currentUserId : message.sent_by
+        guard let userId = userId else {
+            await MainActor.run { isLoadingImage = false }
+            return
+        }
+        
+        let image = await ProfileImageService.shared.getCachedProfileImage(for: userId)
+        
+        await MainActor.run {
+            profileImage = image
+            isLoadingImage = false
         }
     }
-    
-    private func loadOwnProfileImage() {
-        guard let userId = currentUserId else { return }
-        loadProfileImage(for: userId)
+
+    private func handleProfileImageTap(userName: String) {
+        guard !isLoadingImage else { return }
+        
+        if profileImage == nil {
+            Task {
+                await loadProfileImage()
+                await MainActor.run {
+                    // Wenn nach dem Laden immer noch kein Bild, übergebe trotzdem den Callback
+                    // Der Viewer zeigt dann das Default-Logo
+                    onProfileImageTap(profileImage, userName)
+                }
+            }
+        } else {
+            onProfileImageTap(profileImage, userName)
+        }
     }
     
     private func timeString(from date: Date) -> String {
@@ -1052,7 +1275,6 @@ private struct ChatBubbleView: View {
         return formatter.string(from: date)
     }
 }
-
 // MARK: - Voice Message Bubble
 struct VoiceMessageBubble: View {
     let message: Message
