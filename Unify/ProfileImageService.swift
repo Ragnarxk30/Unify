@@ -38,14 +38,19 @@ final class ProfileImageService: ObservableObject {
             return cachedImage
         }
         
-        // Vermeide doppelte Downloads
+        // Vermeide doppelte Downloads - prüfe ob bereits lädt
         if let existingTask = loadingTasks[userId] {
+            print("⏳ Warte auf bereits laufenden Download für User: \(userId)")
             return try? await existingTask.value
         }
         
-        // Starte Download-Task
-        let task = Task<UIImage?, Error> {
-            defer { loadingTasks.removeValue(forKey: userId) }
+        // Starte Download-Task mit @MainActor
+        print("📥 Starte neuen Download für User: \(userId)")
+        let task = Task<UIImage?, Error> { @MainActor in
+            defer {
+                loadingTasks.removeValue(forKey: userId)
+                print("🏁 Download-Task beendet für User: \(userId)")
+            }
             
             do {
                 let imageData = try await downloadProfilePicture(for: userId)
@@ -66,9 +71,10 @@ final class ProfileImageService: ObservableObject {
         }
         
         loadingTasks[userId] = task
-        return try? await task.value
+        let result = try? await task.value
+        print("📦 Returning result: \(result != nil) für User: \(userId)")
+        return result
     }
-    
     // MARK: - Cache Management
     func clearCache() {
         imageCache.removeAllObjects()

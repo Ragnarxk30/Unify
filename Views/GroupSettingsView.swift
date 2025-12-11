@@ -27,6 +27,12 @@ struct GroupSettingsView: View {
     
     @State private var memberProfileImages: [UUID: UIImage] = [:]
     
+    // ⭐ NUR DIESE 4 ZEILEN NEU ⭐
+    @State private var selectedProfileImage: UIImage?
+    @State private var selectedUserName: String?
+    @State private var showProfileImageViewer = false
+    @State private var selectedUserId: UUID?
+    
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
     
@@ -72,7 +78,6 @@ struct GroupSettingsView: View {
                     }
                 }
             }
-            // Gruppe löschen Bestätigung
             .alert("Gruppe wirklich löschen?", isPresented: $showDeleteConfirm) {
                 Button("Abbrechen", role: .cancel) { }
                 Button("Löschen", role: .destructive) {
@@ -81,7 +86,6 @@ struct GroupSettingsView: View {
             } message: {
                 Text("Diese Aktion kann nicht rückgängig gemacht werden.")
             }
-            // Mitglied entfernen Bestätigung
             .alert("Mitglied entfernen?", isPresented: $showRemoveMemberConfirm) {
                 Button("Abbrechen", role: .cancel) {
                     memberToRemove = nil
@@ -96,7 +100,6 @@ struct GroupSettingsView: View {
                     Text("Möchtest du \(member.memberUser.display_name) wirklich aus der Gruppe entfernen?")
                 }
             }
-            // Gruppe verlassen Bestätigung
             .alert("Gruppe wirklich verlassen?", isPresented: $showLeaveConfirm) {
                 Button("Abbrechen", role: .cancel) { }
                 Button("Verlassen", role: .destructive) {
@@ -116,6 +119,20 @@ struct GroupSettingsView: View {
                     members: members,
                     onOwnershipTransferred: {
                         dismiss()
+                    }
+                )
+            }
+            // ⭐ NUR DIESE ZEILEN NEU ⭐
+            .fullScreenCover(isPresented: $showProfileImageViewer) {
+                ProfileImageViewerSheet(
+                    image: $selectedProfileImage,
+                    userName: $selectedUserName,
+                    userId: $selectedUserId,
+                    onDismiss: {
+                        showProfileImageViewer = false
+                        selectedProfileImage = nil
+                        selectedUserName = nil
+                        selectedUserId = nil
                     }
                 )
             }
@@ -148,6 +165,7 @@ struct GroupSettingsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(members) { member in
+                    // ⭐ NUR onAvatarTap NEU ⭐
                     MemberRowView(
                         member: member,
                         profileImage: memberProfileImages[member.user_id],
@@ -155,6 +173,16 @@ struct GroupSettingsView: View {
                         onRemove: {
                             memberToRemove = member
                             showRemoveMemberConfirm = true
+                        },
+                        onAvatarTap: {
+                            selectedProfileImage = memberProfileImages[member.user_id]
+                            selectedUserName = member.memberUser.display_name
+                            selectedUserId = member.user_id
+                            
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                showProfileImageViewer = true
+                            }
                         }
                     )
                 }
@@ -411,40 +439,47 @@ private enum GroupSettingsError {
 
 // MARK: - Reusable Components
 
+// ⭐ NUR onTap PARAMETER NEU ⭐
 private struct MemberAvatarView: View {
     let image: UIImage?
+    let onTap: () -> Void
     var size: CGFloat = 36
     
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Image("Avatar_Default")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+        Button(action: onTap) {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image("Avatar_Default")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
             }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+            )
         }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
+        .buttonStyle(.plain)
     }
 }
 
+// ⭐ NUR onAvatarTap PARAMETER NEU ⭐
 private struct MemberRowView: View {
     let member: GroupMember
     let profileImage: UIImage?
     let showRemoveButton: Bool
     let onRemove: () -> Void
+    let onAvatarTap: () -> Void
     
     var body: some View {
         HStack {
-            MemberAvatarView(image: profileImage)
+            MemberAvatarView(image: profileImage, onTap: onAvatarTap)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(member.memberUser.display_name)
@@ -495,8 +530,6 @@ struct TransferOwnershipView: View {
     @State private var isTransferring = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
-    
-    // Profilbilder von Cache laden
     @State private var memberProfileImages: [UUID: UIImage] = [:]
     
     private let groupRepo = SupabaseGroupRepository()
@@ -515,7 +548,10 @@ struct TransferOwnershipView: View {
                     } else {
                         ForEach(availableMembers) { member in
                             HStack {
-                                MemberAvatarView(image: memberProfileImages[member.user_id])
+                                MemberAvatarView(
+                                    image: memberProfileImages[member.user_id],
+                                    onTap: { }
+                                )
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(member.memberUser.display_name)
@@ -587,7 +623,6 @@ struct TransferOwnershipView: View {
         }
     }
     
-    // Profilbilder von Cache laden
     private func loadMemberProfileImages() async {
         for member in availableMembers {
             if let image = await ProfileImageService.shared.getCachedProfileImage(for: member.user_id) {
@@ -598,7 +633,6 @@ struct TransferOwnershipView: View {
         }
     }
     
-    // Transfer ZUERST ausführen, dann erst Erfolg/Fehler anzeigen
     private func transferOwnership() async {
         guard let newOwnerId = selectedNewOwner else { return }
         
@@ -609,19 +643,14 @@ struct TransferOwnershipView: View {
         }
         
         do {
-            // 1. Erst Transfer durchführen
             try await groupRepo.transferOwnership(groupId: group.id, newOwnerId: newOwnerId)
-            
-            // 2. Dann Gruppe verlassen
             try await groupRepo.leaveGroup(groupId: group.id)
             
-            // 3. Nur bei Erfolg: Bestätigung anzeigen und schließen
             await MainActor.run {
                 isTransferring = false
                 successMessage = "✅ Besitzer erfolgreich transferiert!"
             }
             
-            // Kurz warten, dann schließen
             try? await Task.sleep(nanoseconds: 500_000_000)
             
             await MainActor.run {
@@ -630,7 +659,6 @@ struct TransferOwnershipView: View {
             }
             
         } catch {
-            // Bei Fehler: Fehlermeldung anzeigen, NICHT schließen
             await MainActor.run {
                 isTransferring = false
                 errorMessage = "❌ Transfer fehlgeschlagen: \(error.localizedDescription)"
