@@ -10,6 +10,8 @@ import SwiftUI
 
 struct EventCard: View {
     let event: Event
+    var onTap: ((Event) -> Void)? = nil
+    var onLongPress: ((Event) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -30,6 +32,13 @@ struct EventCard: View {
             }
         }
         .cardStyle()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?(event)
+        }
+        .onLongPressGesture {
+            onLongPress?(event)
+        }
     }
 
     static func format(_ start: Date, _ end: Date) -> String {

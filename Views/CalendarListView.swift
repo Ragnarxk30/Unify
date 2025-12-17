@@ -28,6 +28,10 @@ struct CalendarListView: View {
     @State private var selectedDateAdvanced: Date? = nil
     @State private var slideDirection: Int = 0
 
+    // Event Detail/Action Sheets
+    @State private var selectedEventForDetails: Event? = nil
+    @State private var selectedEventForMenu: Event? = nil
+
     private let sideInset: CGFloat = 20
 
     // MARK: - Gefilterte Events
@@ -131,6 +135,27 @@ struct CalendarListView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(item: $selectedEventForDetails) { event in
+            EventDetailsSheet(event: event)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $selectedEventForMenu) { event in
+            EventActionSheet(
+                event: event,
+                onEdit: {
+                    selectedEventForMenu = nil
+                    editingEvent = event
+                },
+                onDelete: {
+                    selectedEventForMenu = nil
+                    Task {
+                        await deleteEvent(event)
+                    }
+                }
+            )
+            .presentationDetents([.height(172)])
+        }
     }
 
     // MARK: - Hauptinhalt
@@ -172,7 +197,17 @@ struct CalendarListView: View {
                         ZoomableCalendarView(
                             events: filteredEvents,
                             calendar: calendar,
-                            onAdd: { showAddEvent = true }
+                            allGroups: allGroups,
+                            onAdd: { showAddEvent = true },
+                            onEdit: { event in
+                                editingEvent = event
+                            },
+                            onDelete: { event in
+                                await deleteEvent(event)
+                            },
+                            onRefresh: {
+                                await loadEvents()
+                            }
                         )
                     }
                 }
@@ -413,7 +448,15 @@ struct CalendarListView: View {
                     } else {
                         VStack(spacing: 12) {
                             ForEach(selectedDateEvents) { event in
-                                EventCard(event: event)
+                                EventCard(
+                                    event: event,
+                                    onTap: { event in
+                                        selectedEventForDetails = event
+                                    },
+                                    onLongPress: { event in
+                                        selectedEventForMenu = event
+                                    }
+                                )
                             }
                         }
                     }
@@ -577,29 +620,37 @@ struct CalendarListView: View {
             } else {
                 Section {
                     ForEach(filteredEvents) { event in
-                        EventCard(event: event)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 8,
-                                    leading: sideInset,
-                                    bottom: 8,
-                                    trailing: sideInset
-                                )
-                            )
-                            .listRowBackground(Color.clear)
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    Task { await deleteEvent(event) }
-                                } label: {
-                                    Label("Löschen", systemImage: "trash")
-                                }
-
-                                Button {
-                                    editingEvent = event
-                                } label: {
-                                    Label("Bearbeiten", systemImage: "pencil")
-                                }
+                        EventCard(
+                            event: event,
+                            onTap: { event in
+                                selectedEventForDetails = event
+                            },
+                            onLongPress: { event in
+                                selectedEventForMenu = event
                             }
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 8,
+                                leading: sideInset,
+                                bottom: 8,
+                                trailing: sideInset
+                            )
+                        )
+                        .listRowBackground(Color.clear)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                Task { await deleteEvent(event) }
+                            } label: {
+                                Label("Löschen", systemImage: "trash")
+                            }
+
+                            Button {
+                                editingEvent = event
+                            } label: {
+                                Label("Bearbeiten", systemImage: "pencil")
+                            }
+                        }
                     }
                 }
             }
@@ -1291,5 +1342,163 @@ private extension Calendar {
     func weekDates(containing date: Date) -> [Date] {
         let start = self.dateInterval(of: .weekOfYear, for: date)!.start
         return (0..<7).compactMap { self.date(byAdding: .day, value: $0, to: start) }
+    }
+}
+
+// MARK: - Event Action Sheet
+private struct EventActionSheet: View {
+    let event: Event
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Event Info
+            Text(event.title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(Color(.systemBackground))
+
+            Divider()
+
+            // Actions
+            VStack(spacing: 0) {
+                Button {
+                    onEdit()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "pencil")
+                            .foregroundStyle(.blue)
+                            .frame(width: 24)
+                        Text("Bearbeiten")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                }
+                .background(Color(.systemBackground))
+
+                Divider()
+                    .padding(.leading, 56)
+
+                Button(role: .destructive) {
+                    onDelete()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "trash")
+                            .foregroundStyle(.red)
+                            .frame(width: 24)
+                        Text("Löschen")
+                            .foregroundStyle(.red)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                }
+                .background(Color(.systemBackground))
+            }
+        }
+        .background(Color(.systemBackground))
+    }
+}
+
+// MARK: - Event Details Sheet
+private struct EventDetailsSheet: View {
+    let event: Event
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header mit Dismiss Button
+            HStack {
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Event Titel
+                    Text(event.title)
+                        .font(.title.bold())
+                        .multilineTextAlignment(.center)
+
+                    // Zeit Info Card
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.fill")
+                            .font(.title3)
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Zeitraum")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(formattedTimeRange)
+                                .font(.body.weight(.medium))
+                        }
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+
+                    // Details
+                    if let details = event.details, !details.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "text.alignleft")
+                                    .foregroundStyle(.blue)
+                                Text("Details")
+                                    .font(.headline)
+                            }
+                            
+                            Text(details)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(12)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
+            }
+        }
+        .background(Color(.systemBackground))
+    }
+
+    private var formattedTimeRange: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.locale = Locale.current
+
+        let start = formatter.string(from: event.starts_at)
+
+        formatter.dateStyle = .none
+        let end = formatter.string(from: event.ends_at)
+
+        return "\(start) - \(end)"
     }
 }

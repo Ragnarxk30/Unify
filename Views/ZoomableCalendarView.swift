@@ -4,13 +4,31 @@ import SwiftUI
 struct ZoomableCalendarView: View {
     let events: [Event]
     let calendar: Calendar
+    let allGroups: [AppGroup]
     let onAdd: () -> Void
+    let onEdit: ((Event) -> Void)?
+    let onDelete: ((Event) async -> Void)?
+    let onRefresh: () async -> Void
 
     @State private var zoomLevel: CalendarZoomLevel = .year
     @State private var selectedYear: Date = Date()
     @State private var selectedMonth: Date = Date()
     @State private var selectedDay: Date = Date()
     @State private var slideDirection: Int = 0
+    @State private var showQuickCreate = false
+    @State private var preselectedDateTime: Date?
+    @State private var selectedEventForMenu: Event?
+    @State private var selectedEventForDetails: Event?
+
+    init(events: [Event], calendar: Calendar, allGroups: [AppGroup] = [], onAdd: @escaping () -> Void, onEdit: ((Event) -> Void)? = nil, onDelete: ((Event) async -> Void)? = nil, onRefresh: @escaping () async -> Void = {}) {
+        self.events = events
+        self.calendar = calendar
+        self.allGroups = allGroups
+        self.onAdd = onAdd
+        self.onEdit = onEdit
+        self.onDelete = onDelete
+        self.onRefresh = onRefresh
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +44,40 @@ struct ZoomableCalendarView: View {
             .animation(.easeInOut(duration: 0.3), value: viewID)
         }
         .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $showQuickCreate) {
+            QuickCreateEventView(
+                preselectedStart: preselectedDateTime ?? Date(),
+                allGroups: allGroups,
+                onCreated: {
+                    Task {
+                        await onRefresh()
+                    }
+                }
+            )
+            .presentationDetents([.fraction(0.5), .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $selectedEventForMenu) { event in
+            EventActionSheet(
+                event: event,
+                onEdit: {
+                    selectedEventForMenu = nil
+                    onEdit?(event)
+                },
+                onDelete: {
+                    selectedEventForMenu = nil
+                    Task {
+                        await onDelete?(event)
+                    }
+                }
+            )
+            .presentationDetents([.height(172)])
+        }
+        .sheet(item: $selectedEventForDetails) { event in
+            EventDetailsSheet(event: event)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Header
@@ -125,6 +177,12 @@ struct ZoomableCalendarView: View {
                 onSelectDay: { day in
                     selectedDay = day
                     zoomLevel = .day
+                },
+                onEventTap: { event in
+                    selectedEventForDetails = event
+                },
+                onEventLongPress: { event in
+                    selectedEventForMenu = event
                 }
             )
             .swipeToNavigate(
@@ -143,7 +201,22 @@ struct ZoomableCalendarView: View {
                 calendar: calendar,
                 day: selectedDay,
                 events: eventsOn(day: selectedDay),
-                onAdd: onAdd
+                onAdd: onAdd,
+                onHourTap: { hour in
+                    // Erstelle Datum mit ausgewählter Stunde
+                    var components = calendar.dateComponents([.year, .month, .day], from: selectedDay)
+                    components.hour = hour
+                    components.minute = 0
+                    preselectedDateTime = calendar.date(from: components)
+                    showQuickCreate = true
+                },
+                onEventTap: { event in
+                    selectedEventForDetails = event
+                },
+                onEventLongPress: { event in
+                    selectedEventForMenu = event
+                },
+                onEventDelete: onDelete
             )
             .swipeToNavigate(
                 onSwipeLeft: {
@@ -225,12 +298,8 @@ struct ZoomableCalendarView: View {
             selectedMonth = today
             selectedDay = today
 
-            if zoomLevel == .year {
-                // Bleibe in Jahr-Ansicht
-            } else {
-                // Gehe zu Tag-Ansicht
-                zoomLevel = .day
-            }
+            // Bleibe im aktuellen Zoom-Level, springe nur zum heutigen Datum
+            // (Jahr bleibt Jahr, Monat bleibt Monat, Tag bleibt Tag)
         }
     }
 
@@ -393,6 +462,8 @@ private struct MonthGridView: View {
     let today: Date
     let eventsProvider: (Date) -> [Event]
     let onSelectDay: (Date) -> Void
+    let onEventTap: ((Event) -> Void)?
+    let onEventLongPress: ((Event) -> Void)?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
 
@@ -404,17 +475,17 @@ private struct MonthGridView: View {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(calendar.datesForMonthGrid(containing: month), id: \.self) { date in
                         let dayEvents = eventsProvider(date)
-                        MonthDayCell(
+                        MonthDayCellWithEvents(
                             calendar: calendar,
                             date: date,
                             month: month,
                             today: today,
-                            eventsCount: dayEvents.count,
-                            eventColors: compactColors(from: dayEvents)
+                            events: dayEvents,
+                            eventColors: compactColors(from: dayEvents),
+                            onSelectDay: { onSelectDay(date) },
+                            onEventTap: onEventTap,
+                            onEventLongPress: onEventLongPress
                         )
-                        .onTapGesture {
-                            onSelectDay(date)
-                        }
                     }
                 }
             }
@@ -472,7 +543,80 @@ private struct MonthGridView: View {
     }
 }
 
-// MARK: - Month Day Cell
+// MARK: - Month Day Cell with Events
+private struct MonthDayCellWithEvents: View {
+    let calendar: Calendar
+    let date: Date
+    let month: Date
+    let today: Date
+    let events: [Event]
+    let eventColors: [Color]
+    let onSelectDay: () -> Void
+    let onEventTap: ((Event) -> Void)?
+    let onEventLongPress: ((Event) -> Void)?
+
+    var body: some View {
+        let inMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
+        let isToday = calendar.isDate(date, inSameDayAs: today)
+
+        VStack(spacing: 4) {
+            // Ganzer Tag ist anklickbar
+            VStack(spacing: 2) {
+                Text("\(calendar.component(.day, from: date))")
+                    .font(.system(size: 14, weight: isToday ? .bold : .regular))
+                    .foregroundStyle(inMonth ? .primary : .tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(
+                        Circle()
+                            .fill(isToday ? Color.blue : Color.clear)
+                            .opacity(isToday ? 0.2 : 0)
+                    )
+
+                // Event indicators (nur anzeigen, nicht klickbar)
+                if !events.isEmpty {
+                    VStack(spacing: 2) {
+                        ForEach(events.prefix(3)) { event in
+                            Text(event.title)
+                                .font(.system(size: 8))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 2)
+                                .padding(.vertical, 1)
+                                .background(colorForEvent(event).opacity(0.3))
+                                .cornerRadius(2)
+                        }
+
+                        if events.count > 3 {
+                            Text("+\(events.count - 3)")
+                                .font(.system(size: 7))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onSelectDay()
+            }
+        }
+        .frame(height: 70)
+        .opacity(inMonth ? 1.0 : 0.4)
+    }
+
+    private func colorForEvent(_ e: Event) -> Color {
+        if let gid = e.group_id {
+            let hash = gid.uuidString.hashValue
+            let palette: [Color] = [.blue, .green, .red, .orange, .pink, .purple, .teal, .indigo]
+            let idx = abs(hash) % palette.count
+            return palette[idx]
+        }
+        return .blue
+    }
+}
+
+// MARK: - Month Day Cell (old - for mini month)
 private struct MonthDayCell: View {
     let calendar: Calendar
     let date: Date
@@ -530,6 +674,10 @@ private struct DayScheduleViewZoomable: View {
     let day: Date
     let events: [Event]
     let onAdd: () -> Void
+    let onHourTap: (Int) -> Void
+    let onEventTap: ((Event) -> Void)?
+    let onEventLongPress: ((Event) -> Void)?
+    let onEventDelete: ((Event) async -> Void)?
 
     private let hourHeight: CGFloat = 54
     private let leftRailWidth: CGFloat = 52
@@ -568,7 +716,7 @@ private struct DayScheduleViewZoomable: View {
                         }
                         .stroke(Color.secondary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
-                        // Hour labels
+                        // Hour labels - anklickbar zum Termin erstellen
                         ForEach(0..<24, id: \.self) { hour in
                             let y = CGFloat(hour) * hourHeight
 
@@ -577,6 +725,15 @@ private struct DayScheduleViewZoomable: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: leftRailWidth - 8, alignment: .trailing)
                                 .position(x: contentInset + (leftRailWidth - 8) / 2, y: y + 8)
+
+                            // Klickbarer Bereich für die Stunde
+                            Color.clear
+                                .frame(width: totalWidth, height: hourHeight)
+                                .position(x: startX + totalWidth / 2, y: y + hourHeight / 2)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    onHourTap(hour)
+                                }
 
                             Color.clear
                                 .frame(width: 1, height: 1)
@@ -598,6 +755,12 @@ private struct DayScheduleViewZoomable: View {
                                 height: max(h, 22)
                             )
                             .offset(x: x, y: y)
+                            .onTapGesture {
+                                onEventTap?(item.event)
+                            }
+                            .onLongPressGesture {
+                                onEventLongPress?(item.event)
+                            }
                         }
                     }
                     .frame(height: fullHeight)
@@ -831,5 +994,163 @@ private extension Calendar {
         }
 
         return result
+    }
+}
+
+// MARK: - Event Action Sheet
+private struct EventActionSheet: View {
+    let event: Event
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Event Info
+            Text(event.title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(Color(.systemBackground))
+
+            Divider()
+
+            // Actions
+            VStack(spacing: 0) {
+                Button {
+                    onEdit()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "pencil")
+                            .foregroundStyle(.blue)
+                            .frame(width: 24)
+                        Text("Bearbeiten")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                }
+                .background(Color(.systemBackground))
+
+                Divider()
+                    .padding(.leading, 56)
+
+                Button(role: .destructive) {
+                    onDelete()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "trash")
+                            .foregroundStyle(.red)
+                            .frame(width: 24)
+                        Text("Löschen")
+                            .foregroundStyle(.red)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                }
+                .background(Color(.systemBackground))
+            }
+        }
+        .background(Color(.systemBackground))
+    }
+}
+
+// MARK: - Event Details Sheet
+private struct EventDetailsSheet: View {
+    let event: Event
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header mit Dismiss Button
+            HStack {
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Event Titel
+                    Text(event.title)
+                        .font(.title.bold())
+                        .multilineTextAlignment(.center)
+
+                    // Zeit Info Card
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.fill")
+                            .font(.title3)
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Zeitraum")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(formattedTimeRange)
+                                .font(.body.weight(.medium))
+                        }
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+
+                    // Details
+                    if let details = event.details, !details.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "text.alignleft")
+                                    .foregroundStyle(.blue)
+                                Text("Details")
+                                    .font(.headline)
+                            }
+                            
+                            Text(details)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(12)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
+            }
+        }
+        .background(Color(.systemBackground))
+    }
+
+    private var formattedTimeRange: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.locale = Locale.current
+
+        let start = formatter.string(from: event.starts_at)
+
+        formatter.dateStyle = .none
+        let end = formatter.string(from: event.ends_at)
+
+        return "\(start) - \(end)"
     }
 }

@@ -14,6 +14,8 @@ struct GroupMonthlyCalendarView: View {
     @State private var selectedDate: Date? = nil
     @State private var slideDirection: Int = 0
     @State private var showAddEvent: Bool = false
+    @State private var editingEvent: Event? = nil
+    @State private var allGroups: [AppGroup] = []
 
     private let calendar = Calendar.current
 
@@ -40,7 +42,17 @@ struct GroupMonthlyCalendarView: View {
                 ZoomableCalendarView(
                     events: events,
                     calendar: calendar,
-                    onAdd: { showAddEvent = true }
+                    allGroups: [],
+                    onAdd: { showAddEvent = true },
+                    onEdit: { event in
+                        editingEvent = event
+                    },
+                    onDelete: { event in
+                        await deleteEvent(event)
+                    },
+                    onRefresh: {
+                        await loadEvents()
+                    }
                 )
             }
         }
@@ -60,6 +72,11 @@ struct GroupMonthlyCalendarView: View {
         .sheet(isPresented: $showAddEvent) {
             GroupEventsView(groupID: groupID)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $editingEvent) { event in
+            EditEventView(event: event) {
+                Task { await loadEvents() }
+            }
         }
         .task {
             await loadEvents()
@@ -268,6 +285,17 @@ struct GroupMonthlyCalendarView: View {
         }
 
         isLoading = false
+    }
+
+    @MainActor
+    private func deleteEvent(_ event: Event) async {
+        do {
+            let repo = SupabaseEventRepository()
+            try await repo.delete(eventId: event.id)
+            events.removeAll { $0.id == event.id }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Helpers (Events/Colors)
