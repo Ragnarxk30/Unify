@@ -126,7 +126,7 @@ struct CalendarListView: View {
             }
         }
         .sheet(isPresented: $showAddEvent) {
-            CreatePersonalEventView {
+            CreateEventView(allGroups: allGroups) {
                 Task { await loadEvents() }
             }
             .presentationDetents([.medium, .large])
