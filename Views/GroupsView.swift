@@ -45,6 +45,11 @@ struct GroupsView: View {
                 await loadGroups()
             }
         }
+        .onAppear {
+            Task {
+                await loadGroups()
+            }
+        }
     }
     
     // MARK: - Subviews
@@ -118,22 +123,27 @@ struct GroupsView: View {
     }
     
     // MARK: - Data Loading
-    
+
     @MainActor
     private func loadGroups() async {
         guard !isLoading else { return }
-        
+
         isLoading = true
         errorMessage = nil
-        
+
         do {
             groups = try await groupRepo.fetchGroups()
             await refreshUnreadCounts()
         } catch {
             errorMessage = error.localizedDescription
         }
-        
+
         isLoading = false
+    }
+
+    @MainActor
+    private func removeGroup(withId groupId: UUID) {
+        groups.removeAll { $0.id == groupId }
     }
     
     @MainActor

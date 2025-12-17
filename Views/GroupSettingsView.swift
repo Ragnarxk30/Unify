@@ -3,9 +3,10 @@ import SwiftUI
 // MARK: - GroupSettingsView
 struct GroupSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    
+
     let group: AppGroup
     let onUpdated: (AppGroup) -> Void
+    let onGroupDeleted: (() -> Void)?
     
     @State private var name: String
     @State private var isSaving = false
@@ -44,9 +45,10 @@ struct GroupSettingsView: View {
         isOwner || isAdmin
     }
     
-    init(group: AppGroup, onUpdated: @escaping (AppGroup) -> Void) {
+    init(group: AppGroup, onUpdated: @escaping (AppGroup) -> Void, onGroupDeleted: (() -> Void)? = nil) {
         self.group = group
         self.onUpdated = onUpdated
+        self.onGroupDeleted = onGroupDeleted
         _name = State(initialValue: group.name)
     }
     
@@ -118,6 +120,7 @@ struct GroupSettingsView: View {
                     group: group,
                     members: members,
                     onOwnershipTransferred: {
+                        onGroupDeleted?()
                         dismiss()
                     }
                 )
@@ -371,11 +374,12 @@ struct GroupSettingsView: View {
             errorMessage = nil
             isDeleting = true
         }
-        
+
         do {
             try await groupRepo.delete(groupId: group.id)
             await MainActor.run {
                 isDeleting = false
+                onGroupDeleted?()
                 dismiss()
             }
         } catch {
@@ -391,11 +395,12 @@ struct GroupSettingsView: View {
             errorMessage = nil
             isDeleting = true
         }
-        
+
         do {
             try await groupRepo.leaveGroup(groupId: group.id)
             await MainActor.run {
                 isDeleting = false
+                onGroupDeleted?()
                 dismiss()
             }
         } catch {

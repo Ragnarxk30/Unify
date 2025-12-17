@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct GroupChatScreen: View {
+    @Environment(\.dismiss) private var dismiss
+
     let group: AppGroup
     @State private var showAddEvent = false
     @State private var showSettings = false
@@ -49,9 +51,15 @@ struct GroupChatScreen: View {
                     .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showSettings) {
-                GroupSettingsView(group: currentGroup) { updated in
-                    currentGroup = updated
-                }
+                GroupSettingsView(
+                    group: currentGroup,
+                    onUpdated: { updated in
+                        currentGroup = updated
+                    },
+                    onGroupDeleted: {
+                        dismiss()
+                    }
+                )
                 .presentationDetents([.medium, .large])
             }
             .task {
