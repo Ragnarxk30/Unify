@@ -180,3 +180,9 @@ enum EventTargetScope: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 }
+
+enum CalendarZoomLevel: Equatable {
+    case year
+    case month
+    case day
+}

@@ -18,46 +18,31 @@ struct GroupMonthlyCalendarView: View {
     private let calendar = Calendar.current
 
     var body: some View {
-        VStack(spacing: 14) {
-            header
-
-            // Modus Picker (Monat/Woche/Tag)
-            Picker("", selection: $calendarViewMode) {
-                ForEach(CalendarViewMode.allCases) { m in
-                    Text(m.rawValue).tag(m)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-
-            Group {
-                if isLoading {
-                    ProgressView("Lade Termine...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let errorMessage {
-                    VStack(spacing: 12) {
-                        Text("Fehler beim Laden der Termine")
-                            .font(.headline)
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Button("Erneut versuchen") {
-                            Task { await loadEvents() }
-                        }
-                        .buttonStyle(.bordered)
-                    }
+        Group {
+            if isLoading {
+                ProgressView("Lade Termine...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ZStack {
-                        currentModeView
-                            .id(modeID)
-                            .transition(slideTransition)
+            } else if let errorMessage {
+                VStack(spacing: 12) {
+                    Text("Fehler beim Laden der Termine")
+                        .font(.headline)
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Erneut versuchen") {
+                        Task { await loadEvents() }
                     }
-                    .animation(.easeInOut(duration: 0.28), value: modeID)
+                    .buttonStyle(.bordered)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // iPhone-Style Zoomable Kalender
+                ZoomableCalendarView(
+                    events: events,
+                    calendar: calendar,
+                    onAdd: { showAddEvent = true }
+                )
             }
-
-            Spacer(minLength: 0)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Gruppenkalender")

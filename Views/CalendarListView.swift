@@ -168,8 +168,12 @@ struct CalendarListView: View {
                     if mode == .list {
                         listContent
                     } else {
-                        // Erweitertes Kalender-UI (Monat/Woche/Tag)
-                        advancedCalendarContent
+                        // iPhone-Style Zoomable Kalender
+                        ZoomableCalendarView(
+                            events: filteredEvents,
+                            calendar: calendar,
+                            onAdd: { showAddEvent = true }
+                        )
                     }
                 }
             }
