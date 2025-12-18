@@ -744,7 +744,11 @@ struct CalendarListView: View {
         do {
             let repo = SupabaseEventRepository()
             try await repo.delete(eventId: event.id)
-            events.removeAll { $0.id == event.id }
+            await MainActor.run {
+                withAnimation(.easeInOut) {
+                    events.removeAll { $0.id == event.id }
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

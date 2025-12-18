@@ -774,6 +774,7 @@ private struct DayScheduleViewZoomable: View {
                             .buttonStyle(.plain)
                             .position(x: startX + totalWidth / 2, y: y + hourHeight / 2)
                             .accessibilityLabel(Text(String(format: "%02d:00 auswählen", hour)))
+                            .zIndex(0)
 
                             Color.clear
                                 .frame(width: 1, height: 1)
@@ -804,6 +805,7 @@ private struct DayScheduleViewZoomable: View {
                                 }
                             )
                             .position(x: x + columnWidth / 2, y: y + max(h, 22) / 2)
+                            .zIndex(1)
                         }
 
                         // Inline Event Creation Form
@@ -841,6 +843,7 @@ private struct DayScheduleViewZoomable: View {
                     }
                     .frame(height: fullHeight)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .animation(.easeInOut(duration: 0.25), value: inlineCreateTime)
                 }
                 .frame(height: hourHeight * 24)
                 .padding(.horizontal)
@@ -1307,7 +1310,9 @@ private struct InlineEventCreateForm: View {
     @State private var targetScope: EventTargetScope = .personal
     @State private var selectedGroupId: UUID? = nil
     @State private var isCreating = false
+    @State private var showDetails = false
     @FocusState private var isTitleFocused: Bool
+    @FocusState private var isDetailsFocused: Bool
 
     init(calendar: Calendar, startTime: Date, allGroups: [AppGroup], onCancel: @escaping () -> Void, onCreate: @escaping () -> Void) {
         self.calendar = calendar
@@ -1398,7 +1403,7 @@ private struct InlineEventCreateForm: View {
                     }
                 }
 
-                if !details.isEmpty || isTitleFocused {
+                if showDetails {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "text.alignleft")
                             .foregroundStyle(.secondary)
@@ -1408,6 +1413,26 @@ private struct InlineEventCreateForm: View {
                         TextField("Details (optional)", text: $details, axis: .vertical)
                             .font(.subheadline)
                             .lineLimit(1...3)
+                            .focused($isDetailsFocused)
+                    }
+                } else {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showDetails = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isDetailsFocused = true
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "plus.circle")
+                                .foregroundStyle(.blue)
+                                .frame(width: 20)
+                            Text("Details hinzufügen")
+                                .font(.subheadline)
+                                .foregroundStyle(.blue)
+                            Spacer()
+                        }
                     }
                 }
             }
