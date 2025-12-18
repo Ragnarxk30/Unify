@@ -210,27 +210,16 @@ struct ZoomableCalendarView: View {
                 inlineCreateTime: $inlineCreateTime,
                 onAdd: onAdd,
                 onHourTap: { hour in
-                    // Verwende startOfDay statt selectedDay (das auf 12:00 normalisiert ist)
-                    let dayStart = calendar.startOfDay(for: selectedDay)
-                    print("🔍 Geclickte Stunde: \(hour)")
-                    print("🔍 selectedDay: \(selectedDay)")
-                    print("🔍 dayStart: \(dayStart)")
+                    // Einfach: Nimm Jahr/Monat/Tag vom selectedDay und setze die geclickte Stunde
+                    var components = calendar.dateComponents([.year, .month, .day], from: selectedDay)
+                    components.hour = hour
+                    components.minute = 0
+                    components.second = 0
 
-                    if let tappedTime = calendar.date(
-                        bySettingHour: hour,
-                        minute: 0,
-                        second: 0,
-                        of: dayStart
-                    ) {
-                        print("🔍 tappedTime erstellt: \(tappedTime)")
-                        let comp = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: tappedTime)
-                        print("🔍 tappedTime Komponenten: Jahr=\(comp.year ?? 0), Monat=\(comp.month ?? 0), Tag=\(comp.day ?? 0), Stunde=\(comp.hour ?? 0), Minute=\(comp.minute ?? 0)")
-
+                    if let tappedTime = calendar.date(from: components) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             inlineCreateTime = tappedTime
                         }
-                    } else {
-                        print("❌ Konnte tappedTime nicht erstellen!")
                     }
                 },
                 onEventTap: { event in
@@ -775,13 +764,16 @@ private struct DayScheduleViewZoomable: View {
                                 .frame(width: leftRailWidth - 8, alignment: .trailing)
                                 .position(x: contentInset + (leftRailWidth - 8) / 2, y: y + 8)
 
-                            Color.clear
-                                .frame(width: totalWidth, height: hourHeight)
-                                .position(x: startX + totalWidth / 2, y: y + hourHeight / 2)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    onHourTap(hour)
-                                }
+                            Button {
+                                onHourTap(hour)
+                            } label: {
+                                Color.clear
+                                    .frame(width: totalWidth, height: hourHeight)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .position(x: startX + totalWidth / 2, y: y + hourHeight / 2)
+                            .accessibilityLabel(Text(String(format: "%02d:00 auswählen", hour)))
 
                             Color.clear
                                 .frame(width: 1, height: 1)
@@ -816,9 +808,9 @@ private struct DayScheduleViewZoomable: View {
 
                         // Inline Event Creation Form
                         if let createTime = inlineCreateTime {
-                            let hour = calendar.component(.hour, from: createTime)
-                            let minute = calendar.component(.minute, from: createTime)
-                            let yPosition = (CGFloat(hour) + CGFloat(minute) / 60.0) * hourHeight
+                            let comps = calendar.dateComponents([.hour, .minute], from: createTime)
+                            let totalMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+                            let yPosition = CGFloat(totalMinutes) / 60.0 * hourHeight + hourHeight / 2
 
                             InlineEventCreateForm(
                                 calendar: calendar,
@@ -838,12 +830,13 @@ private struct DayScheduleViewZoomable: View {
                                     }
                                 }
                             )
-                            .frame(width: totalWidth)
-                            .position(x: startX + totalWidth / 2, y: yPosition + 60)
+                            .frame(width: totalWidth, height: 140)
+                            .position(x: startX + totalWidth / 2, y: yPosition)
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.9).combined(with: .opacity),
                                 removal: .scale(scale: 0.9).combined(with: .opacity)
                             ))
+                            .zIndex(1000)
                         }
                     }
                     .frame(height: fullHeight)
@@ -1323,10 +1316,6 @@ private struct InlineEventCreateForm: View {
         self.onCancel = onCancel
         self.onCreate = onCreate
         _endTime = State(initialValue: startTime.addingTimeInterval(3600)) // Default 1 Stunde
-
-        let comp = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: startTime)
-        print("✅ InlineEventCreateForm init - startTime: \(startTime)")
-        print("✅ InlineEventCreateForm init - Komponenten: Jahr=\(comp.year ?? 0), Monat=\(comp.month ?? 0), Tag=\(comp.day ?? 0), Stunde=\(comp.hour ?? 0), Minute=\(comp.minute ?? 0)")
     }
 
     var body: some View {
