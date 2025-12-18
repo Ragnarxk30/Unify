@@ -116,6 +116,7 @@ struct CreateEventView: View {
     private var canSave: Bool {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return false }
+        guard start >= Date() else { return false }
 
         if targetScope == .group {
             return selectedGroupId != nil && !groups.isEmpty
@@ -143,6 +144,7 @@ struct CreateEventView: View {
         let trimmedTitle   = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
+        guard start >= Date() else { return }
 
         do {
             let repo = SupabaseEventRepository()

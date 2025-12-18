@@ -119,6 +119,7 @@ struct SupabaseEventRepository: EventRepository {
 
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EventError.emptyTitle }
+        if startsAt < Date() { throw EventError.startInPast }
         if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
 
         let payload = EventInsert(
@@ -146,6 +147,7 @@ struct SupabaseEventRepository: EventRepository {
     ) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EventError.emptyTitle }
+        if startsAt < Date() { throw EventError.startInPast }
         if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
 
         let payload = EventUpdatePayload(
@@ -212,6 +214,7 @@ struct SupabaseEventRepository: EventRepository {
 
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EventError.emptyTitle }
+        if startsAt < Date() { throw EventError.startInPast }
         if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
 
         let payload = PersonalEventInsert(
@@ -254,7 +257,19 @@ struct SupabaseEventRepository: EventRepository {
 }
 
 
-enum EventError: Error {
+enum EventError: LocalizedError {
     case emptyTitle
     case invalidTimeRange
+    case startInPast
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyTitle:
+            return "Der Titel darf nicht leer sein."
+        case .invalidTimeRange:
+            return "Das Enddatum muss nach dem Startdatum liegen."
+        case .startInPast:
+            return "Der Startzeitpunkt darf nicht in der Vergangenheit liegen."
+        }
+    }
 }

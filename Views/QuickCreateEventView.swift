@@ -27,6 +27,7 @@ struct QuickCreateEventView: View {
     private var canCreate: Bool {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return false }
+        guard startTime >= Date() else { return false }
 
         if targetScope == .group {
             return selectedGroupId != nil
@@ -150,6 +151,12 @@ struct QuickCreateEventView: View {
         let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedTitle.isEmpty else { return }
+        guard startTime >= Date() else {
+            await MainActor.run {
+                errorMessage = EventError.startInPast.localizedDescription
+            }
+            return
+        }
 
         await MainActor.run {
             isCreating = true
