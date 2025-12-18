@@ -210,6 +210,14 @@ struct ZoomableCalendarView: View {
                 inlineCreateTime: $inlineCreateTime,
                 onAdd: onAdd,
                 onHourTap: { hour in
+                    // Wenn Popup bereits offen ist, schließe es
+                    if inlineCreateTime != nil {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            inlineCreateTime = nil
+                        }
+                        return
+                    }
+
                     // Einfach: Nimm Jahr/Monat/Tag vom selectedDay und setze die geclickte Stunde
                     var components = calendar.dateComponents([.year, .month, .day], from: selectedDay)
                     components.hour = hour
