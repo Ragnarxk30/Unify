@@ -729,6 +729,7 @@ private struct DayScheduleViewZoomable: View {
     private let leftRailWidth: CGFloat = 52
     private let eventSpacing: CGFloat = 4
     private let contentInset: CGFloat = 8
+    private let topBuffer: CGFloat = 8 // ~2mm extra space above 00:00
 
     var body: some View {
         let layout = DayEventLayoutZoomable(events: events, calendar: calendar, inlineCreateTime: inlineCreateTime)
@@ -736,7 +737,7 @@ private struct DayScheduleViewZoomable: View {
         ScrollViewReader { proxy in
             ScrollView {
                 GeometryReader { geo in
-                    let fullHeight = hourHeight * 24
+                    let fullHeight = hourHeight * 24 + topBuffer + contentInset
                     let startX = contentInset + leftRailWidth
                     let endX = geo.size.width - contentInset
                     let totalWidth = endX - startX
@@ -745,7 +746,7 @@ private struct DayScheduleViewZoomable: View {
                         // Hour grid lines
                         Path { p in
                             for h in 0...24 {
-                                let y = CGFloat(h) * hourHeight
+                                let y = topBuffer + CGFloat(h) * hourHeight
                                 p.move(to: CGPoint(x: startX, y: y))
                                 p.addLine(to: CGPoint(x: endX, y: y))
                             }
@@ -755,7 +756,7 @@ private struct DayScheduleViewZoomable: View {
                         // Half-hour dashed lines
                         Path { p in
                             for h in 0..<24 {
-                                let y = CGFloat(h) * hourHeight + hourHeight * 0.5
+                                let y = topBuffer + CGFloat(h) * hourHeight + hourHeight * 0.5
                                 p.move(to: CGPoint(x: startX, y: y))
                                 p.addLine(to: CGPoint(x: endX, y: y))
                             }
@@ -764,7 +765,7 @@ private struct DayScheduleViewZoomable: View {
 
                         // Hour labels mit Tap-Gesten
                         ForEach(0..<24, id: \.self) { hour in
-                            let y = CGFloat(hour) * hourHeight
+                            let y = topBuffer + CGFloat(hour) * hourHeight
 
                             Text(String(format: "%02d:00", hour))
                                 .font(.caption2.weight(.semibold))
@@ -794,7 +795,7 @@ private struct DayScheduleViewZoomable: View {
                         ForEach(layout.items) { item in
                             let columnWidth = (totalWidth - CGFloat(item.columns - 1) * eventSpacing) / CGFloat(item.columns)
                             let x = startX + CGFloat(item.column) * (columnWidth + eventSpacing)
-                            let y = layout.yOffset(for: item.event, hourHeight: hourHeight)
+                            let y = topBuffer + layout.yOffset(for: item.event, hourHeight: hourHeight)
                             let h = layout.height(for: item.event, hourHeight: hourHeight)
 
                             EventBlockZoomable(
@@ -818,9 +819,13 @@ private struct DayScheduleViewZoomable: View {
 
                         // Inline Event Creation Form
                         if let createTime = inlineCreateTime {
+                            let formHeight: CGFloat = 140
                             let comps = calendar.dateComponents([.hour, .minute], from: createTime)
                             let totalMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-                            let yPosition = CGFloat(totalMinutes) / 60.0 * hourHeight + hourHeight / 2
+                            let rawY = topBuffer + CGFloat(totalMinutes) / 60.0 * hourHeight + hourHeight / 2
+                            let minY = topBuffer + formHeight / 2 + contentInset
+                            let maxY = fullHeight - formHeight / 2 - contentInset
+                            let yPosition = min(max(rawY, minY), maxY)
 
                             InlineEventCreateForm(
                                 calendar: calendar,
@@ -840,20 +845,21 @@ private struct DayScheduleViewZoomable: View {
                                     }
                                 }
                             )
-                            .frame(width: totalWidth, height: 140)
+                            .frame(width: totalWidth, height: formHeight)
                             .position(x: startX + totalWidth / 2, y: yPosition)
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.9).combined(with: .opacity),
                                 removal: .scale(scale: 0.9).combined(with: .opacity)
                             ))
-                            .zIndex(1000)
+                            .zIndex(5000) // ensure the quick create form stays above all other content
+                            .allowsHitTesting(true)
                         }
                     }
                     .frame(height: fullHeight)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
                     .animation(.easeInOut(duration: 0.25), value: inlineCreateTime)
                 }
-                .frame(height: hourHeight * 24)
+                .frame(height: hourHeight * 24 + topBuffer + contentInset)
                 .padding(.horizontal)
                 .padding(.bottom)
             }
