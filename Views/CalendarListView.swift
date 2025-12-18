@@ -30,7 +30,7 @@ struct CalendarListView: View {
 
     // Event Detail/Action Sheets
     @State private var selectedEventForDetails: Event? = nil
-    @State private var selectedEventForMenu: Event? = nil
+    @State private var pendingAction: PendingEventAction? = nil
 
     private let sideInset: CGFloat = 20
 
@@ -139,22 +139,6 @@ struct CalendarListView: View {
             EventDetailsSheet(event: event)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $selectedEventForMenu) { event in
-            EventActionSheet(
-                event: event,
-                onEdit: {
-                    selectedEventForMenu = nil
-                    editingEvent = event
-                },
-                onDelete: {
-                    selectedEventForMenu = nil
-                    Task {
-                        await deleteEvent(event)
-                    }
-                }
-            )
-            .presentationDetents([.height(172)])
         }
     }
 
@@ -452,11 +436,44 @@ struct CalendarListView: View {
                                     event: event,
                                     onTap: { event in
                                         selectedEventForDetails = event
-                                    },
-                                    onLongPress: { event in
-                                        selectedEventForMenu = event
                                     }
                                 )
+                                .contentShape(Rectangle())
+                                .contextMenu {
+                                    Button {
+                                        pendingAction = .edit(event)
+                                    } label: {
+                                        Label("Bearbeiten", systemImage: "pencil")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        pendingAction = .delete(event)
+                                    } label: {
+                                        Label("Löschen", systemImage: "trash")
+                                    }
+                                }
+                                .confirmationDialog(
+                                    pendingAction?.title ?? "",
+                                    isPresented: Binding(
+                                        get: { pendingAction?.eventId == event.id },
+                                        set: { if !$0 { pendingAction = nil } }
+                                    ),
+                                    titleVisibility: .visible
+                                ) {
+                                    Button("Bestätigen") {
+                                        guard let action = pendingAction else { return }
+                                        switch action {
+                                        case .delete(let e):
+                                            Task { await deleteEvent(e) }
+                                        case .edit(let e):
+                                            editingEvent = e
+                                        }
+                                        pendingAction = nil
+                                    }
+                                    Button("Abbrechen", role: .cancel) { 
+                                        pendingAction = nil 
+                                    }
+                                }
                             }
                         }
                     }
@@ -620,37 +637,7 @@ struct CalendarListView: View {
             } else {
                 Section {
                     ForEach(filteredEvents) { event in
-                        EventCard(
-                            event: event,
-                            onTap: { event in
-                                selectedEventForDetails = event
-                            },
-                            onLongPress: { event in
-                                selectedEventForMenu = event
-                            }
-                        )
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 8,
-                                leading: sideInset,
-                                bottom: 8,
-                                trailing: sideInset
-                            )
-                        )
-                        .listRowBackground(Color.clear)
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                Task { await deleteEvent(event) }
-                            } label: {
-                                Label("Löschen", systemImage: "trash")
-                            }
-
-                            Button {
-                                editingEvent = event
-                            } label: {
-                                Label("Bearbeiten", systemImage: "pencil")
-                            }
-                        }
+                        listEventRow(event)
                     }
                 }
             }
@@ -658,6 +645,66 @@ struct CalendarListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
+        .alert(
+            "Termin löschen?",
+            isPresented: Binding(
+                get: {
+                    if case .delete = pendingAction {
+                        return true
+                    }
+                    return false
+                },
+                set: { if !$0 { pendingAction = nil } }
+            )
+        ) {
+            Button("Löschen", role: .destructive) {
+                if case .delete(let e) = pendingAction {
+                    Task { await deleteEvent(e) }
+                }
+                pendingAction = nil
+            }
+            Button("Abbrechen", role: .cancel) {
+                pendingAction = nil
+            }
+        } message: {
+            if case .delete(let e) = pendingAction {
+                Text("Möchtest du \"\(e.title)\" wirklich löschen?")
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func listEventRow(_ event: Event) -> some View {
+        EventCard(
+            event: event,
+            onTap: { event in
+                selectedEventForDetails = event
+            }
+        )
+        .listRowInsets(
+            EdgeInsets(
+                top: 8,
+                leading: sideInset,
+                bottom: 8,
+                trailing: sideInset
+            )
+        )
+        .listRowBackground(Color.clear)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingAction = .delete(event)
+            } label: {
+                Label("Löschen", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button {
+                editingEvent = event
+            } label: {
+                Label("Bearbeiten", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
     }
 
     private var emptyStateView: some View {
@@ -1238,7 +1285,10 @@ private struct MonthDayCell: View {
         }
         .padding(8)
         .frame(height: 70)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(.systemGray6))
+        )
         .opacity(inCurrentMonth ? 1.0 : 0.55)
     }
 }
@@ -1500,5 +1550,35 @@ private struct EventDetailsSheet: View {
         let end = formatter.string(from: event.ends_at)
 
         return "\(start) - \(end)"
+    }
+}
+
+// MARK: - PendingEventAction
+private enum PendingEventAction: Identifiable, Equatable {
+    case delete(Event)
+    case edit(Event)
+
+    var id: String {
+        switch self {
+        case .delete(let e): return "delete-\(e.id)"
+        case .edit(let e):   return "edit-\(e.id)"
+        }
+    }
+
+    var eventId: Event.ID {
+        switch self {
+        case .delete(let e), .edit(let e): return e.id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .delete(let e): return "\"\(e.title)\" löschen?"
+        case .edit(let e):   return "\"\(e.title)\" bearbeiten?"
+        }
+    }
+    
+    static func == (lhs: PendingEventAction, rhs: PendingEventAction) -> Bool {
+        lhs.id == rhs.id
     }
 }

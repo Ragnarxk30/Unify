@@ -15,10 +15,9 @@ struct ZoomableCalendarView: View {
     @State private var selectedMonth: Date = Date()
     @State private var selectedDay: Date = Date()
     @State private var slideDirection: Int = 0
-    @State private var showQuickCreate = false
-    @State private var preselectedDateTime: Date?
-    @State private var selectedEventForMenu: Event?
+    @State private var quickCreateDate: IdentifiableDate? = nil  // Für sheet(item:)
     @State private var selectedEventForDetails: Event?
+    @State private var pendingAction: PendingEventAction? = nil
 
     init(events: [Event], calendar: Calendar, allGroups: [AppGroup] = [], onAdd: @escaping () -> Void, onEdit: ((Event) -> Void)? = nil, onDelete: ((Event) async -> Void)? = nil, onRefresh: @escaping () async -> Void = {}) {
         self.events = events
@@ -44,9 +43,9 @@ struct ZoomableCalendarView: View {
             .animation(.easeInOut(duration: 0.3), value: viewID)
         }
         .background(Color(.systemGroupedBackground))
-        .sheet(isPresented: $showQuickCreate) {
+        .sheet(item: $quickCreateDate) { dateItem in
             QuickCreateEventView(
-                preselectedStart: preselectedDateTime ?? Date(),
+                preselectedStart: dateItem.date,
                 allGroups: allGroups,
                 onCreated: {
                     Task {
@@ -57,26 +56,42 @@ struct ZoomableCalendarView: View {
             .presentationDetents([.fraction(0.5), .large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: $selectedEventForMenu) { event in
-            EventActionSheet(
-                event: event,
-                onEdit: {
-                    selectedEventForMenu = nil
-                    onEdit?(event)
-                },
-                onDelete: {
-                    selectedEventForMenu = nil
-                    Task {
-                        await onDelete?(event)
-                    }
-                }
-            )
-            .presentationDetents([.height(172)])
-        }
         .sheet(item: $selectedEventForDetails) { event in
             EventDetailsSheet(event: event)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .onChange(of: pendingAction) { _, newValue in
+            if case .edit(let event) = newValue {
+                onEdit?(event)
+                pendingAction = nil
+            }
+        }
+        .alert("Termin löschen?", isPresented: Binding(
+            get: { 
+                if case .delete = pendingAction {
+                    return true
+                }
+                return false
+            },
+            set: { if !$0 { pendingAction = nil } }
+        )) {
+            Button("Löschen", role: .destructive) {
+                if case .delete(let event) = pendingAction {
+                    pendingAction = nil
+                    Task {
+                        await onDelete?(event)
+                        await onRefresh()
+                    }
+                }
+            }
+            Button("Abbrechen", role: .cancel) {
+                pendingAction = nil
+            }
+        } message: {
+            if case .delete(let event) = pendingAction {
+                Text("Möchtest du \"\(event.title)\" wirklich löschen?")
+            }
         }
     }
 
@@ -175,14 +190,17 @@ struct ZoomableCalendarView: View {
                 today: Date(),
                 eventsProvider: eventsOn(day:),
                 onSelectDay: { day in
-                    selectedDay = day
+                    selectedDay = normalizeToNoon(day)
                     zoomLevel = .day
                 },
                 onEventTap: { event in
                     selectedEventForDetails = event
                 },
-                onEventLongPress: { event in
-                    selectedEventForMenu = event
+                onEventEdit: { event in
+                    pendingAction = .edit(event)
+                },
+                onEventDelete: { event in
+                    pendingAction = .delete(event)
                 }
             )
             .swipeToNavigate(
@@ -203,29 +221,37 @@ struct ZoomableCalendarView: View {
                 events: eventsOn(day: selectedDay),
                 onAdd: onAdd,
                 onHourTap: { hour in
-                    // Erstelle Datum mit ausgewählter Stunde
-                    var components = calendar.dateComponents([.year, .month, .day], from: selectedDay)
-                    components.hour = hour
-                    components.minute = 0
-                    preselectedDateTime = calendar.date(from: components)
-                    showQuickCreate = true
+                    if let tappedTime = calendar.date(
+                        bySettingHour: hour,
+                        minute: 0,
+                        second: 0,
+                        of: selectedDay
+                    ) {
+                        quickCreateDate = IdentifiableDate(date: tappedTime)
+                    }
                 },
                 onEventTap: { event in
                     selectedEventForDetails = event
                 },
-                onEventLongPress: { event in
-                    selectedEventForMenu = event
+                onEventEdit: { event in
+                    pendingAction = .edit(event)
                 },
-                onEventDelete: onDelete
+                onEventDelete: { event in
+                    pendingAction = .delete(event)
+                }
             )
             .swipeToNavigate(
                 onSwipeLeft: {
                     slideDirection = +1
-                    selectedDay = calendar.date(byAdding: .day, value: 1, to: selectedDay) ?? selectedDay
+                    if let newDay = calendar.date(byAdding: .day, value: 1, to: selectedDay) {
+                        selectedDay = normalizeToNoon(newDay)
+                    }
                 },
                 onSwipeRight: {
                     slideDirection = -1
-                    selectedDay = calendar.date(byAdding: .day, value: -1, to: selectedDay) ?? selectedDay
+                    if let newDay = calendar.date(byAdding: .day, value: -1, to: selectedDay) {
+                        selectedDay = normalizeToNoon(newDay)
+                    }
                 }
             )
         }
@@ -290,16 +316,22 @@ struct ZoomableCalendarView: View {
         }
     }
 
+    /// Normalisiert ein Datum auf 12:00 Mittag um Timezone-Probleme zu vermeiden
+    private func normalizeToNoon(_ date: Date) -> Date {
+        var components = calendar.dateComponents([.year, .month, .day], from: date)
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+        return calendar.date(from: components) ?? date
+    }
+
     private func jumpToToday() {
         slideDirection = 0
         let today = Date()
         withAnimation(.easeInOut(duration: 0.3)) {
             selectedYear = today
             selectedMonth = today
-            selectedDay = today
-
-            // Bleibe im aktuellen Zoom-Level, springe nur zum heutigen Datum
-            // (Jahr bleibt Jahr, Monat bleibt Monat, Tag bleibt Tag)
+            selectedDay = normalizeToNoon(today)
         }
     }
 
@@ -310,7 +342,9 @@ struct ZoomableCalendarView: View {
         case .month:
             selectedMonth = calendar.date(byAdding: .month, value: -1, to: selectedMonth) ?? selectedMonth
         case .day:
-            selectedDay = calendar.date(byAdding: .day, value: -1, to: selectedDay) ?? selectedDay
+            if let newDay = calendar.date(byAdding: .day, value: -1, to: selectedDay) {
+                selectedDay = normalizeToNoon(newDay)
+            }
         }
     }
 
@@ -321,7 +355,9 @@ struct ZoomableCalendarView: View {
         case .month:
             selectedMonth = calendar.date(byAdding: .month, value: 1, to: selectedMonth) ?? selectedMonth
         case .day:
-            selectedDay = calendar.date(byAdding: .day, value: 1, to: selectedDay) ?? selectedDay
+            if let newDay = calendar.date(byAdding: .day, value: 1, to: selectedDay) {
+                selectedDay = normalizeToNoon(newDay)
+            }
         }
     }
 
@@ -463,7 +499,8 @@ private struct MonthGridView: View {
     let eventsProvider: (Date) -> [Event]
     let onSelectDay: (Date) -> Void
     let onEventTap: ((Event) -> Void)?
-    let onEventLongPress: ((Event) -> Void)?
+    let onEventEdit: ((Event) -> Void)?
+    let onEventDelete: ((Event) -> Void)?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
 
@@ -484,7 +521,8 @@ private struct MonthGridView: View {
                             eventColors: compactColors(from: dayEvents),
                             onSelectDay: { onSelectDay(date) },
                             onEventTap: onEventTap,
-                            onEventLongPress: onEventLongPress
+                            onEventEdit: onEventEdit,
+                            onEventDelete: onEventDelete
                         )
                     }
                 }
@@ -553,7 +591,8 @@ private struct MonthDayCellWithEvents: View {
     let eventColors: [Color]
     let onSelectDay: () -> Void
     let onEventTap: ((Event) -> Void)?
-    let onEventLongPress: ((Event) -> Void)?
+    let onEventEdit: ((Event) -> Void)?
+    let onEventDelete: ((Event) -> Void)?
 
     var body: some View {
         let inMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
@@ -564,14 +603,9 @@ private struct MonthDayCellWithEvents: View {
             VStack(spacing: 2) {
                 Text("\(calendar.component(.day, from: date))")
                     .font(.system(size: 14, weight: isToday ? .bold : .regular))
-                    .foregroundStyle(inMonth ? .primary : .tertiary)
+                    .foregroundStyle(isToday ? Color.blue : (inMonth ? Color.primary : Color.secondary.opacity(0.5)))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
-                    .background(
-                        Circle()
-                            .fill(isToday ? Color.blue : Color.clear)
-                            .opacity(isToday ? 0.2 : 0)
-                    )
 
                 // Event indicators (nur anzeigen, nicht klickbar)
                 if !events.isEmpty {
@@ -601,7 +635,15 @@ private struct MonthDayCellWithEvents: View {
                 onSelectDay()
             }
         }
-        .frame(height: 70)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(
+                    isToday
+                    ? Color.accentColor.opacity(0.12)
+                    : Color(.systemGray5).opacity(0.5)
+                )
+        )
         .opacity(inMonth ? 1.0 : 0.4)
     }
 
@@ -674,10 +716,10 @@ private struct DayScheduleViewZoomable: View {
     let day: Date
     let events: [Event]
     let onAdd: () -> Void
-    let onHourTap: (Int) -> Void
+    let onHourTap: (Int) -> Void  // Nur die Stunde übergeben, Parent konstruiert das Datum
     let onEventTap: ((Event) -> Void)?
-    let onEventLongPress: ((Event) -> Void)?
-    let onEventDelete: ((Event) async -> Void)?
+    let onEventEdit: ((Event) -> Void)?
+    let onEventDelete: ((Event) -> Void)?
 
     private let hourHeight: CGFloat = 54
     private let leftRailWidth: CGFloat = 52
@@ -716,7 +758,7 @@ private struct DayScheduleViewZoomable: View {
                         }
                         .stroke(Color.secondary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
-                        // Hour labels - anklickbar zum Termin erstellen
+                        // Hour labels mit Tap-Gesten
                         ForEach(0..<24, id: \.self) { hour in
                             let y = CGFloat(hour) * hourHeight
 
@@ -726,7 +768,6 @@ private struct DayScheduleViewZoomable: View {
                                 .frame(width: leftRailWidth - 8, alignment: .trailing)
                                 .position(x: contentInset + (leftRailWidth - 8) / 2, y: y + 8)
 
-                            // Klickbarer Bereich für die Stunde
                             Color.clear
                                 .frame(width: totalWidth, height: hourHeight)
                                 .position(x: startX + totalWidth / 2, y: y + hourHeight / 2)
@@ -752,15 +793,18 @@ private struct DayScheduleViewZoomable: View {
                                 event: item.event,
                                 calendar: calendar,
                                 width: columnWidth,
-                                height: max(h, 22)
+                                height: max(h, 22),
+                                onTap: {
+                                    onEventTap?(item.event)
+                                },
+                                onEdit: {
+                                    onEventEdit?(item.event)
+                                },
+                                onDelete: {
+                                    onEventDelete?(item.event)
+                                }
                             )
-                            .offset(x: x, y: y)
-                            .onTapGesture {
-                                onEventTap?(item.event)
-                            }
-                            .onLongPressGesture {
-                                onEventLongPress?(item.event)
-                            }
+                            .position(x: x + columnWidth / 2, y: y + max(h, 22) / 2)
                         }
                     }
                     .frame(height: fullHeight)
@@ -875,6 +919,9 @@ private struct EventBlockZoomable: View {
     let calendar: Calendar
     let width: CGFloat
     let height: CGFloat
+    let onTap: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         let color = colorForEvent(event)
@@ -898,6 +945,23 @@ private struct EventBlockZoomable: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(color.opacity(0.35), lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .contextMenu {
+            Button {
+                onEdit()
+            } label: {
+                Label("Bearbeiten", systemImage: "pencil")
+            }
+
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Löschen", systemImage: "trash")
+            }
+        }
     }
 
     private func colorForEvent(_ e: Event) -> Color {
@@ -949,6 +1013,16 @@ private extension View {
 
 // MARK: - Calendar Extensions
 private extension Calendar {
+    /// Erstellt ein Datum am MITTAG des ersten Tages des Monats (vermeidet Timezone-Probleme)
+    func startOfMonthNoon(for date: Date) -> Date {
+        var components = self.dateComponents([.year, .month], from: date)
+        components.day = 1
+        components.hour = 12  // Mittag um Timezone-Probleme zu vermeiden
+        components.minute = 0
+        components.second = 0
+        return self.date(from: components)!
+    }
+
     func startOfMonth(for date: Date) -> Date {
         self.date(from: self.dateComponents([.year, .month], from: date))!
     }
@@ -958,13 +1032,13 @@ private extension Calendar {
     }
 
     func firstWeekdayOffset(for monthDate: Date) -> Int {
-        let firstDay = startOfMonth(for: monthDate)
+        let firstDay = startOfMonthNoon(for: monthDate)
         let weekday = self.component(.weekday, from: firstDay)
         return (weekday - self.firstWeekday + 7) % 7
     }
 
     func datesForMonthGrid(containing date: Date) -> [Date] {
-        let monthStart = startOfMonth(for: date)
+        let monthStart = startOfMonthNoon(for: date)
         let offset = firstWeekdayOffset(for: monthStart)
         let days = daysInMonth(for: monthStart)
 
@@ -1153,4 +1227,40 @@ private struct EventDetailsSheet: View {
 
         return "\(start) - \(end)"
     }
+}
+
+// MARK: - PendingEventAction
+private enum PendingEventAction: Identifiable, Equatable {
+    case delete(Event)
+    case edit(Event)
+
+    var id: String {
+        switch self {
+        case .delete(let e): return "delete-\(e.id)"
+        case .edit(let e):   return "edit-\(e.id)"
+        }
+    }
+
+    var eventId: Event.ID {
+        switch self {
+        case .delete(let e), .edit(let e): return e.id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .delete(let e): return "\"\(e.title)\" löschen?"
+        case .edit(let e):   return "\"\(e.title)\" bearbeiten?"
+        }
+    }
+    
+    static func == (lhs: PendingEventAction, rhs: PendingEventAction) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+// MARK: - Identifiable Date Wrapper
+private struct IdentifiableDate: Identifiable {
+    let id = UUID()
+    let date: Date
 }

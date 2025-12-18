@@ -9,6 +9,7 @@ struct QuickCreateEventView: View {
 
     @State private var title = ""
     @State private var details = ""
+    @State private var startTime: Date
     @State private var targetScope: EventTargetScope = .personal
     @State private var selectedGroupId: UUID? = nil
     @State private var isCreating = false
@@ -19,6 +20,7 @@ struct QuickCreateEventView: View {
         self.preselectedStart = preselectedStart
         self.allGroups = allGroups
         self.onCreated = onCreated
+        _startTime = State(initialValue: preselectedStart)
         _endTime = State(initialValue: preselectedStart.addingTimeInterval(3600))
     }
 
@@ -86,11 +88,10 @@ struct QuickCreateEventView: View {
                     HStack {
                         Image(systemName: "clock")
                             .foregroundStyle(.secondary)
-                        Text("Start: \(formattedTime(preselectedStart))")
-                            .font(.subheadline)
+                        DatePicker("Start", selection: $startTime, displayedComponents: [.date, .hourAndMinute])
                     }
 
-                    DatePicker("Ende", selection: $endTime, displayedComponents: .hourAndMinute)
+                    DatePicker("Ende", selection: $endTime, displayedComponents: [.date, .hourAndMinute])
                 }
 
                 Section {
@@ -121,6 +122,10 @@ struct QuickCreateEventView: View {
                     }
                 }
             }
+            .onChange(of: startTime) { oldStart, newStart in
+                let duration = endTime.timeIntervalSince(oldStart)
+                endTime = newStart.addingTimeInterval(max(duration, 0))
+            }
         }
     }
 
@@ -129,7 +134,7 @@ struct QuickCreateEventView: View {
         df.locale = Locale.current
         df.dateStyle = .long
         df.timeStyle = .none
-        return df.string(from: preselectedStart)
+        return df.string(from: startTime)
     }
 
     private func formattedTime(_ date: Date) -> String {
@@ -159,7 +164,7 @@ struct QuickCreateEventView: View {
                 try await repo.createPersonal(
                     title: trimmedTitle,
                     details: trimmedDetails.isEmpty ? nil : trimmedDetails,
-                    startsAt: preselectedStart,
+                    startsAt: startTime,
                     endsAt: endTime
                 )
 
@@ -169,7 +174,7 @@ struct QuickCreateEventView: View {
                     groupId: gid,
                     title: trimmedTitle,
                     details: trimmedDetails.isEmpty ? nil : trimmedDetails,
-                    startsAt: preselectedStart,
+                    startsAt: startTime,
                     endsAt: endTime
                 )
             }

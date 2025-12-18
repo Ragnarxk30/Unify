@@ -155,11 +155,15 @@ struct SupabaseEventRepository: EventRepository {
             endsAt: endsAt
         )
 
-        try await db
+        let _: EventRow = try await db
             .from(eventsTable)
             .update(payload)
             .eq("id", value: eventId.uuidString)
+            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
+            .single()
             .execute()
+            .value
+        
         // Berechtigung: RLS-Policy members_can_update_events_with_role_logic
     }
 

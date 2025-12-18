@@ -17,6 +17,8 @@ struct EditEventView: View {
     @State private var details: String
     @State private var start: Date
     @State private var end: Date
+    @State private var errorMessage: String?
+    @State private var isSaving = false
 
     init(event: Event, onUpdated: @escaping () -> Void) {
         self.event = event
@@ -56,13 +58,24 @@ struct EditEventView: View {
                         DatePicker("Start", selection: $start)
                         DatePicker("Ende", selection: $end)
 
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .padding(.top, 4)
+                        }
+
                         Button {
                             Task { await saveChanges() }
                         } label: {
-                            Label("Änderungen speichern", systemImage: "checkmark")
+                            if isSaving {
+                                ProgressView()
+                            } else {
+                                Label("Änderungen speichern", systemImage: "checkmark")
+                            }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                     }
                     .padding()
                     .background(
@@ -89,7 +102,7 @@ struct EditEventView: View {
                     Button("Speichern") {
                         Task { await saveChanges() }
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                 }
             }
         }
@@ -108,6 +121,11 @@ struct EditEventView: View {
 
         guard !trimmedTitle.isEmpty else { return }
 
+        await MainActor.run {
+            isSaving = true
+            errorMessage = nil
+        }
+
         do {
             let repo = SupabaseEventRepository()
             try await repo.update(
@@ -119,11 +137,16 @@ struct EditEventView: View {
             )
 
             await MainActor.run {
+                isSaving = false
                 onUpdated()
                 dismiss()
             }
         } catch {
             print("❌ Fehler beim Aktualisieren des Events:", error)
+            await MainActor.run {
+                isSaving = false
+                errorMessage = "Fehler beim Speichern: \(error.localizedDescription)"
+            }
         }
     }
 }
