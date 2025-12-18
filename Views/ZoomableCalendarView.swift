@@ -15,7 +15,7 @@ struct ZoomableCalendarView: View {
     @State private var selectedMonth: Date = Date()
     @State private var selectedDay: Date = Date()
     @State private var slideDirection: Int = 0
-    @State private var quickCreateDate: IdentifiableDate? = nil  // Für sheet(item:)
+    @State private var inlineCreateTime: Date? = nil  // Für inline Event-Erstellung
     @State private var selectedEventForDetails: Event?
     @State private var pendingAction: PendingEventAction? = nil
 
@@ -43,19 +43,6 @@ struct ZoomableCalendarView: View {
             .animation(.easeInOut(duration: 0.3), value: viewID)
         }
         .background(Color(.systemGroupedBackground))
-        .sheet(item: $quickCreateDate) { dateItem in
-            QuickCreateEventView(
-                preselectedStart: dateItem.date,
-                allGroups: allGroups,
-                onCreated: {
-                    Task {
-                        await onRefresh()
-                    }
-                }
-            )
-            .presentationDetents([.fraction(0.5), .large])
-            .presentationDragIndicator(.visible)
-        }
         .sheet(item: $selectedEventForDetails) { event in
             EventDetailsSheet(event: event)
                 .presentationDetents([.medium, .large])
@@ -219,15 +206,31 @@ struct ZoomableCalendarView: View {
                 calendar: calendar,
                 day: selectedDay,
                 events: eventsOn(day: selectedDay),
+                allGroups: allGroups,
+                inlineCreateTime: $inlineCreateTime,
                 onAdd: onAdd,
                 onHourTap: { hour in
+                    // Verwende startOfDay statt selectedDay (das auf 12:00 normalisiert ist)
+                    let dayStart = calendar.startOfDay(for: selectedDay)
+                    print("🔍 Geclickte Stunde: \(hour)")
+                    print("🔍 selectedDay: \(selectedDay)")
+                    print("🔍 dayStart: \(dayStart)")
+
                     if let tappedTime = calendar.date(
                         bySettingHour: hour,
                         minute: 0,
                         second: 0,
-                        of: selectedDay
+                        of: dayStart
                     ) {
-                        quickCreateDate = IdentifiableDate(date: tappedTime)
+                        print("🔍 tappedTime erstellt: \(tappedTime)")
+                        let comp = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: tappedTime)
+                        print("🔍 tappedTime Komponenten: Jahr=\(comp.year ?? 0), Monat=\(comp.month ?? 0), Tag=\(comp.day ?? 0), Stunde=\(comp.hour ?? 0), Minute=\(comp.minute ?? 0)")
+
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            inlineCreateTime = tappedTime
+                        }
+                    } else {
+                        print("❌ Konnte tappedTime nicht erstellen!")
                     }
                 },
                 onEventTap: { event in
@@ -238,7 +241,8 @@ struct ZoomableCalendarView: View {
                 },
                 onEventDelete: { event in
                     pendingAction = .delete(event)
-                }
+                },
+                onRefresh: onRefresh
             )
             .swipeToNavigate(
                 onSwipeLeft: {
@@ -715,11 +719,14 @@ private struct DayScheduleViewZoomable: View {
     let calendar: Calendar
     let day: Date
     let events: [Event]
+    let allGroups: [AppGroup]
+    @Binding var inlineCreateTime: Date?
     let onAdd: () -> Void
-    let onHourTap: (Int) -> Void  // Nur die Stunde übergeben, Parent konstruiert das Datum
+    let onHourTap: (Int) -> Void
     let onEventTap: ((Event) -> Void)?
     let onEventEdit: ((Event) -> Void)?
     let onEventDelete: ((Event) -> Void)?
+    let onRefresh: () async -> Void
 
     private let hourHeight: CGFloat = 54
     private let leftRailWidth: CGFloat = 52
@@ -727,7 +734,7 @@ private struct DayScheduleViewZoomable: View {
     private let contentInset: CGFloat = 8
 
     var body: some View {
-        let layout = DayEventLayoutZoomable(events: events, calendar: calendar)
+        let layout = DayEventLayoutZoomable(events: events, calendar: calendar, inlineCreateTime: inlineCreateTime)
 
         ScrollViewReader { proxy in
             ScrollView {
@@ -806,6 +813,38 @@ private struct DayScheduleViewZoomable: View {
                             )
                             .position(x: x + columnWidth / 2, y: y + max(h, 22) / 2)
                         }
+
+                        // Inline Event Creation Form
+                        if let createTime = inlineCreateTime {
+                            let hour = calendar.component(.hour, from: createTime)
+                            let minute = calendar.component(.minute, from: createTime)
+                            let yPosition = (CGFloat(hour) + CGFloat(minute) / 60.0) * hourHeight
+
+                            InlineEventCreateForm(
+                                calendar: calendar,
+                                startTime: createTime,
+                                allGroups: allGroups,
+                                onCancel: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                        inlineCreateTime = nil
+                                    }
+                                },
+                                onCreate: {
+                                    Task {
+                                        await onRefresh()
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            inlineCreateTime = nil
+                                        }
+                                    }
+                                }
+                            )
+                            .frame(width: totalWidth)
+                            .position(x: startX + totalWidth / 2, y: yPosition + 60)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.9).combined(with: .opacity),
+                                removal: .scale(scale: 0.9).combined(with: .opacity)
+                            ))
+                        }
                     }
                     .frame(height: fullHeight)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -838,11 +877,13 @@ private struct DayEventLayoutItemZoomable: Identifiable {
 private struct DayEventLayoutZoomable {
     let events: [Event]
     let calendar: Calendar
+    let inlineCreateTime: Date?
     let items: [DayEventLayoutItemZoomable]
 
-    init(events: [Event], calendar: Calendar) {
+    init(events: [Event], calendar: Calendar, inlineCreateTime: Date?) {
         self.events = events
         self.calendar = calendar
+        self.inlineCreateTime = inlineCreateTime
         self.items = DayEventLayoutZoomable.computeItems(events: events, calendar: calendar)
     }
 
@@ -1259,8 +1300,192 @@ private enum PendingEventAction: Identifiable, Equatable {
     }
 }
 
-// MARK: - Identifiable Date Wrapper
-private struct IdentifiableDate: Identifiable {
-    let id = UUID()
-    let date: Date
+// MARK: - Inline Event Create Form
+private struct InlineEventCreateForm: View {
+    let calendar: Calendar
+    let startTime: Date
+    let allGroups: [AppGroup]
+    let onCancel: () -> Void
+    let onCreate: () -> Void
+
+    @State private var title = ""
+    @State private var details = ""
+    @State private var endTime: Date
+    @State private var targetScope: EventTargetScope = .personal
+    @State private var selectedGroupId: UUID? = nil
+    @State private var isCreating = false
+    @FocusState private var isTitleFocused: Bool
+
+    init(calendar: Calendar, startTime: Date, allGroups: [AppGroup], onCancel: @escaping () -> Void, onCreate: @escaping () -> Void) {
+        self.calendar = calendar
+        self.startTime = startTime
+        self.allGroups = allGroups
+        self.onCancel = onCancel
+        self.onCreate = onCreate
+        _endTime = State(initialValue: startTime.addingTimeInterval(3600)) // Default 1 Stunde
+
+        let comp = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: startTime)
+        print("✅ InlineEventCreateForm init - startTime: \(startTime)")
+        print("✅ InlineEventCreateForm init - Komponenten: Jahr=\(comp.year ?? 0), Monat=\(comp.month ?? 0), Tag=\(comp.day ?? 0), Stunde=\(comp.hour ?? 0), Minute=\(comp.minute ?? 0)")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Compact Header
+            HStack(spacing: 8) {
+                Button {
+                    onCancel()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+
+                TextField("Neuer Termin", text: $title)
+                    .font(.headline)
+                    .focused($isTitleFocused)
+
+                Button {
+                    Task { await createEvent() }
+                } label: {
+                    if isCreating {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(canCreate ? .blue : .secondary)
+                    }
+                }
+                .disabled(!canCreate || isCreating)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.regularMaterial)
+
+            Divider()
+
+            // Compact Time & Details
+            VStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    Image(systemName: "clock")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+
+                    Text(formattedTime(startTime))
+                        .font(.subheadline)
+
+                    Image(systemName: "arrow.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    DatePicker("", selection: $endTime, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .fixedSize()
+                }
+
+                HStack(spacing: 12) {
+                    Image(systemName: targetScope == .personal ? "person" : "person.2")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+
+                    Picker("Ziel", selection: $targetScope) {
+                        ForEach(EventTargetScope.allCases) { scope in
+                            Text(scope == .personal ? "Persönlich" : "Gruppe").tag(scope)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+
+                    if targetScope == .group {
+                        Picker("", selection: $selectedGroupId) {
+                            Text("Wählen").tag(nil as UUID?)
+                            ForEach(allGroups) { group in
+                                Text(group.name).tag(group.id as UUID?)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+                }
+
+                if !details.isEmpty || isTitleFocused {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "text.alignleft")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
+                            .padding(.top, 4)
+
+                        TextField("Details (optional)", text: $details, axis: .vertical)
+                            .font(.subheadline)
+                            .lineLimit(1...3)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .onAppear {
+            isTitleFocused = true
+        }
+    }
+
+    private var canCreate: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (targetScope == .personal || selectedGroupId != nil)
+    }
+
+    private func formattedTime(_ date: Date) -> String {
+        let df = DateFormatter()
+        df.locale = calendar.locale
+        df.timeStyle = .short
+        df.dateStyle = .none
+        return df.string(from: date)
+    }
+
+    private func createEvent() async {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedTitle.isEmpty else { return }
+
+        isCreating = true
+
+        do {
+            let repo = SupabaseEventRepository()
+
+            switch targetScope {
+            case .personal:
+                try await repo.createPersonal(
+                    title: trimmedTitle,
+                    details: trimmedDetails.isEmpty ? nil : trimmedDetails,
+                    startsAt: startTime,
+                    endsAt: endTime
+                )
+
+            case .group:
+                guard let gid = selectedGroupId else { return }
+                try await repo.create(
+                    groupId: gid,
+                    title: trimmedTitle,
+                    details: trimmedDetails.isEmpty ? nil : trimmedDetails,
+                    startsAt: startTime,
+                    endsAt: endTime
+                )
+            }
+
+            await MainActor.run {
+                isCreating = false
+                onCreate()
+            }
+        } catch {
+            await MainActor.run {
+                isCreating = false
+                print("❌ Fehler beim Erstellen:", error)
+            }
+        }
+    }
 }
