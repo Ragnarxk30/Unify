@@ -145,7 +145,7 @@ struct EditEventView: View {
             print("❌ Fehler beim Aktualisieren des Events:", error)
             await MainActor.run {
                 isSaving = false
-                errorMessage = "Details kann man nicht beim Bearbeiten leer lassen"
+                errorMessage = error.localizedDescription
             }
         }
     }

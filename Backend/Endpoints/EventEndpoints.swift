@@ -147,7 +147,6 @@ struct SupabaseEventRepository: EventRepository {
     ) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EventError.emptyTitle }
-        if startsAt < Date() { throw EventError.startInPast }
         if let end = endsAt, end < startsAt { throw EventError.invalidTimeRange }
 
         let payload = EventUpdatePayload(
@@ -157,16 +156,11 @@ struct SupabaseEventRepository: EventRepository {
             endsAt: endsAt
         )
 
-        let _: EventRow = try await db
+        try await db
             .from(eventsTable)
             .update(payload)
             .eq("id", value: eventId.uuidString)
-            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
-            .single()
             .execute()
-            .value
-        
-        // Berechtigung: RLS-Policy members_can_update_events_with_role_logic
     }
 
     func delete(eventId: UUID) async throws {
@@ -179,6 +173,8 @@ struct SupabaseEventRepository: EventRepository {
     }
 
     func listForGroup(_ groupId: UUID) async throws -> [Event] {
+        await cleanupPastEvents()
+        
         let rows: [EventRow] = try await db
             .from(eventsTable)
             .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
@@ -192,6 +188,8 @@ struct SupabaseEventRepository: EventRepository {
     }
 
     func listUserEvents() async throws -> [Event] {
+        await cleanupPastEvents()
+        
         let rows: [EventRow] = try await db
             .from(eventsTable)
             .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
@@ -233,6 +231,8 @@ struct SupabaseEventRepository: EventRepository {
 
     /// nur persönliche Events des aktuellen Users laden
     func listPersonalEvents() async throws -> [Event] {
+        await cleanupPastEvents()
+        
         let rows: [EventRow] = try await db
             .from(eventsTable)
             .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
@@ -252,6 +252,29 @@ struct SupabaseEventRepository: EventRepository {
                 created_by: row.createdBy,
                 created_at: row.createdAt
             )
+        }
+    }
+    
+    /// Entfernt bereits abgelaufene Events automatisch
+    private func cleanupPastEvents() async {
+        let now = Date()
+        do {
+            // Lösche Events deren Endzeit in der Vergangenheit liegt
+            try await db
+                .from(eventsTable)
+                .delete()
+                .lt("ends_at", value: now)
+                .execute()
+            
+            // Lösche Events ohne Endzeit deren Startzeit in der Vergangenheit liegt
+            try await db
+                .from(eventsTable)
+                .delete()
+                .is("ends_at", value: nil)
+                .lt("starts_at", value: now)
+                .execute()
+        } catch {
+            print("⚠️ Konnte abgelaufene Termine nicht bereinigen:", error)
         }
     }
 }

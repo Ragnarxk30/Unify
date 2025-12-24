@@ -261,23 +261,51 @@ struct ChatEndpoints {
     // MARK: - Real-Time
     static func startRealtimeSubscription(
         groupID: UUID,
-        onMessage: @escaping (Message) -> Void
+        onMessage: @escaping (Message) -> Void,
+        onDelete: @escaping (UUID) -> Void,
+        onUpdate: @escaping (Message) -> Void
     ) async throws {
 
         stopRealtimeSubscription(for: groupID)
 
         let channel = db.realtimeV2.channel("group_chat_\(groupID)")
 
-        let changes = channel.postgresChange(
+        let inserts = channel.postgresChange(
             InsertAction.self,
+            schema: "public",
+            table: messagesTable,
+            filter: .eq("group_id", value: groupID)
+        )
+        
+        let deletes = channel.postgresChange(
+            DeleteAction.self,
+            schema: "public",
+            table: messagesTable,
+            filter: .eq("group_id", value: groupID)
+        )
+        
+        let updates = channel.postgresChange(
+            UpdateAction.self,
             schema: "public",
             table: messagesTable,
             filter: .eq("group_id", value: groupID)
         )
 
         Task {
-            for await action in changes {
-                await handleRealtime(action, groupID: groupID, onMessage: onMessage)
+            for await action in inserts {
+                await handleRealtimeInsert(action, groupID: groupID, onMessage: onMessage)
+            }
+        }
+        
+        Task {
+            for await action in deletes {
+                await handleRealtimeDelete(action, onDelete: onDelete)
+            }
+        }
+        
+        Task {
+            for await action in updates {
+                await handleRealtimeUpdate(action, groupID: groupID, onUpdate: onUpdate)
             }
         }
 
@@ -294,7 +322,7 @@ struct ChatEndpoints {
         }
     }
 
-    private static func handleRealtime(
+    private static func handleRealtimeInsert(
         _ action: InsertAction,
         groupID: UUID,
         onMessage: @escaping (Message) -> Void
@@ -326,12 +354,69 @@ struct ChatEndpoints {
             }
 
         } catch {
-            print("❌ Real-Time decode error: \(error)")
-            // ✅ DEBUG INFO HINZUFÜGEN
+            print("❌ Real-Time insert decode error: \(error)")
             print("🔍 Raw data: \(action.record)")
             if let decodingError = error as? DecodingError {
                 print("🔍 Decoding details: \(decodingError)")
             }
+        }
+    }
+    
+    private static func handleRealtimeDelete(
+        _ action: DeleteAction,
+        onDelete: @escaping (UUID) -> Void
+    ) async {
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(action.oldRecord)
+            
+            let decoder = JSONDecoder()
+            struct DeletedMessage: Decodable {
+                let id: UUID
+            }
+            
+            let deleted = try decoder.decode(DeletedMessage.self, from: data)
+            DispatchQueue.main.async { onDelete(deleted.id) }
+            
+        } catch {
+            print("❌ Real-Time delete decode error: \(error)")
+            print("🔍 Raw data: \(action.oldRecord)")
+        }
+    }
+    
+    private static func handleRealtimeUpdate(
+        _ action: UpdateAction,
+        groupID: UUID,
+        onUpdate: @escaping (Message) -> Void
+    ) async {
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(action.record)
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom(dateDecoder)
+            
+            let raw = try decoder.decode(Message.self, from: data)
+            
+            guard raw.group_id == groupID else { return }
+            
+            if let cached = await userCache.get(raw.sent_by) {
+                let msg = buildMessage(from: raw, with: cached)
+                DispatchQueue.main.async { onUpdate(msg) }
+            } else {
+                DispatchQueue.main.async { onUpdate(raw) }
+                
+                Task {
+                    let user = try? await fetchUser(raw.sent_by)
+                    if let u = user {
+                        await userCache.set(u)
+                    }
+                }
+            }
+            
+        } catch {
+            print("❌ Real-Time update decode error: \(error)")
+            print("🔍 Raw data: \(action.record)")
         }
     }
     

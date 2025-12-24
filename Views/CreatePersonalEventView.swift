@@ -72,7 +72,6 @@ struct CreatePersonalEventView: View {
         let trimmedTitle   = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
-        guard start >= Date() else { return }
         
         do {
             let repo = SupabaseEventRepository()
