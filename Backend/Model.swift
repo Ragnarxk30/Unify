@@ -38,6 +38,12 @@ struct Event: Identifiable, Codable {
     let group_id: UUID?
     let created_by: UUID
     let created_at: Date
+    let user: AppUser?  // 👈 user MUSS am Ende sein wegen Supabase
+    
+    // Computed property für einfachen Zugriff
+    var creator: AppUser {
+        user ?? AppUser(id: created_by, display_name: "Unbekannt", email: "")
+    }
 }
 
 // Backend/Models/Message.swift

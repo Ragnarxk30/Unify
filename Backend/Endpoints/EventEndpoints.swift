@@ -1,10 +1,3 @@
-//
-//  SupabaseEventRepository.swift 
-//  Unify
-//
-//  Created by Jonas Dunkenberger on 16.11.25.
-//
-
 import Foundation
 import Supabase
 
@@ -38,7 +31,6 @@ struct SupabaseEventRepository: EventRepository {
         }
     }
     
-    // 👇 neu: Insert ohne group_id (wird in DB NULL)
     private struct PersonalEventInsert: Encodable {
         let title: String
         let details: String?
@@ -69,6 +61,7 @@ struct SupabaseEventRepository: EventRepository {
         }
     }
 
+    // 👇 AKTUALISIERT: Jetzt mit user relation
     private struct EventRow: Decodable {
         let id: UUID
         let title: String
@@ -78,6 +71,7 @@ struct SupabaseEventRepository: EventRepository {
         let groupId: UUID?
         let createdBy: UUID
         let createdAt: Date
+        let user: AppUser?  // 👈 NEU
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -88,6 +82,7 @@ struct SupabaseEventRepository: EventRepository {
             case groupId   = "group_id"
             case createdBy = "created_by"
             case createdAt = "created_at"
+            case user
         }
     }
 
@@ -102,7 +97,8 @@ struct SupabaseEventRepository: EventRepository {
             ends_at: row.endsAt,
             group_id: row.groupId,
             created_by: row.createdBy,
-            created_at: row.createdAt
+            created_at: row.createdAt,
+            user: row.user  // 👈 NEU
         )
     }
 
@@ -135,7 +131,6 @@ struct SupabaseEventRepository: EventRepository {
             .from(eventsTable)
             .insert(payload)
             .execute()
-        // Berechtigung: komplett über RLS (members_can_insert_events)
     }
 
     func update(
@@ -169,37 +164,63 @@ struct SupabaseEventRepository: EventRepository {
             .delete()
             .eq("id", value: eventId.uuidString)
             .execute()
-        // Berechtigung: RLS-Policy members_can_delete_events_with_role_logic
     }
 
     func listForGroup(_ groupId: UUID) async throws -> [Event] {
         await cleanupPastEvents()
         
+        // 👇 WICHTIG: Jetzt mit user relation
         let rows: [EventRow] = try await db
             .from(eventsTable)
-            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
+            .select("""
+                id,
+                title,
+                details,
+                starts_at,
+                ends_at,
+                group_id,
+                created_by,
+                created_at,
+                user:user!created_by(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
             .eq("group_id", value: groupId.uuidString)
             .order("starts_at", ascending: true)
             .execute()
             .value
 
         return rows.map(mapRow)
-        // Sichtbarkeit: members_can_select_events / user_can_view_group_events
     }
 
     func listUserEvents() async throws -> [Event] {
         await cleanupPastEvents()
         
+        // 👇 WICHTIG: Jetzt mit user relation
         let rows: [EventRow] = try await db
             .from(eventsTable)
-            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
+            .select("""
+                id,
+                title,
+                details,
+                starts_at,
+                ends_at,
+                group_id,
+                created_by,
+                created_at,
+                user:user!created_by(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
             .order("starts_at", ascending: true)
             .execute()
             .value
 
         return rows.map(mapRow)
-        // RLS sorgt dafür, dass nur Events aus Gruppen zurückkommen,
-        // in denen auth.uid() Mitglied ist.
     }
     
     func createPersonal(
@@ -229,44 +250,44 @@ struct SupabaseEventRepository: EventRepository {
             .execute()
     }
 
-    /// nur persönliche Events des aktuellen Users laden
     func listPersonalEvents() async throws -> [Event] {
         await cleanupPastEvents()
         
+        // 👇 WICHTIG: Jetzt mit user relation
         let rows: [EventRow] = try await db
             .from(eventsTable)
-            .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
-            .is("group_id", value: nil)                    // 👈 nur group_id IS NULL
+            .select("""
+                id,
+                title,
+                details,
+                starts_at,
+                ends_at,
+                group_id,
+                created_by,
+                created_at,
+                user:user!created_by(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
+            .is("group_id", value: nil)
             .order("starts_at", ascending: true)
             .execute()
             .value
 
-        return rows.map { row in
-            Event(
-                id: row.id,
-                title: row.title,
-                details: row.details,
-                starts_at: row.startsAt,
-                ends_at: row.endsAt,
-                group_id: row.groupId,
-                created_by: row.createdBy,
-                created_at: row.createdAt
-            )
-        }
+        return rows.map(mapRow)
     }
     
-    /// Entfernt bereits abgelaufene Events automatisch
     private func cleanupPastEvents() async {
         let now = Date()
         do {
-            // Lösche Events deren Endzeit in der Vergangenheit liegt
             try await db
                 .from(eventsTable)
                 .delete()
                 .lt("ends_at", value: now)
                 .execute()
             
-            // Lösche Events ohne Endzeit deren Startzeit in der Vergangenheit liegt
             try await db
                 .from(eventsTable)
                 .delete()
@@ -278,7 +299,6 @@ struct SupabaseEventRepository: EventRepository {
         }
     }
 }
-
 
 enum EventError: LocalizedError {
     case emptyTitle

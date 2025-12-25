@@ -8,6 +8,7 @@ struct GroupsView: View {
     @State private var isLoading = false
     @State private var isRefreshing = false
     @State private var errorMessage: String?
+    @State private var memberCounts: [UUID: Int] = [:]
     
     @StateObject private var unreadService = UnreadMessagesService.shared
     
@@ -105,7 +106,8 @@ struct GroupsView: View {
                     ForEach(groups) { group in
                         GroupRow(
                             group: group,
-                            unreadCount: unreadService.unreadCounts[group.id] ?? 0
+                            unreadCount: unreadService.unreadCounts[group.id] ?? 0,
+                            memberCount: memberCounts[group.id] ?? 0
                         )
                     }
                 }
@@ -134,6 +136,7 @@ struct GroupsView: View {
         do {
             groups = try await groupRepo.fetchGroups()
             await refreshUnreadCounts()
+            await loadMemberCounts()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -160,53 +163,140 @@ struct GroupsView: View {
         
         isRefreshing = false
     }
+    
+    @MainActor
+    private func loadMemberCounts() async {
+        for group in groups {
+            do {
+                let count = try await groupRepo.fetchMemberCount(groupId: group.id)
+                memberCounts[group.id] = count
+            } catch {
+                print("⚠️ Fehler beim Laden der Mitgliederzahl für Gruppe \(group.id): \(error)")
+                memberCounts[group.id] = 0
+            }
+        }
+    }
 }
 
 // MARK: - Group Row
 private struct GroupRow: View {
     let group: AppGroup
     let unreadCount: Int
+    let memberCount: Int
+    
+    @State private var isPressedCalendar = false
+    @State private var isPressedChat = false
+    
+    var memberCountText: String {
+        if memberCount == 1 {
+            return "1 Mitglied"
+        } else {
+            return "\(memberCount) Mitglieder"
+        }
+    }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
+        HStack(spacing: 16) {
+            // Linke Seite: Gruppeninformationen
             VStack(alignment: .leading, spacing: 6) {
                 Text(group.name)
                     .font(.title3)
-                    .bold()
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
                 
-                Text("Owner: \(group.owner.display_name)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: "person.2.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    Text(memberCountText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
             
-            // Action Buttons
-            HStack(spacing: 12) {
-                NavigationLink {
-                    GroupCalendarScreen(groupID: group.id)
-                } label: {
-                    Label("Kalender", systemImage: "calendar")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                
-                // Chat mit Badge
-                NavigationLink {
-                    GroupChatScreen(group: group)
-                } label: {
-                    Label("Chat", systemImage: "text.bubble")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .overlay(alignment: .topTrailing) {
-                    if unreadCount > 0 {
-                        UnreadBadge(count: unreadCount)
-                            .offset(x: 4, y: -4)
+            Spacer()
+            
+            // Rechte Seite: Action Buttons
+            HStack(spacing: 16) {
+                // Kalender Button
+                NavigationLink(destination: GroupCalendarScreen(groupID: group.id)) {
+                    VStack(spacing: 4) {
+                        CircularActionButton(
+                            icon: "calendar",
+                            color: .blue,
+                            isPressed: isPressedCalendar
+                        )
+                        
+                        Text("Kalender")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in isPressedCalendar = true }
+                        .onEnded { _ in isPressedCalendar = false }
+                )
+                
+                // Chat Button mit Badge
+                NavigationLink(destination: GroupChatScreen(group: group)) {
+                    VStack(spacing: 4) {
+                        ZStack(alignment: .topTrailing) {
+                            CircularActionButton(
+                                icon: "bubble.left.and.bubble.right.fill",
+                                color: .green,
+                                isPressed: isPressedChat
+                            )
+                            
+                            if unreadCount > 0 {
+                                UnreadBadge(count: unreadCount)
+                                    .offset(x: 6, y: -6)
+                            }
+                        }
+                        
+                        Text(unreadCount > 0 ? "\(unreadCount) neu" : "Chat")
+                            .font(.caption2)
+                            .fontWeight(unreadCount > 0 ? .semibold : .regular)
+                            .foregroundStyle(unreadCount > 0 ? .green : .secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in isPressedChat = true }
+                        .onEnded { _ in isPressedChat = false }
+                )
             }
         }
-        .cardStyle()
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
+    }
+}
+
+// MARK: - Circular Action Button
+private struct CircularActionButton: View {
+    let icon: String
+    let color: Color
+    var isPressed: Bool = false
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(isPressed ? 0.25 : 0.15))
+                .frame(width: 50, height: 50)
+            
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(color)
+        }
+        .scaleEffect(isPressed ? 0.95 : 1.0)
+        .animation(.easeInOut(duration: 0.1), value: isPressed)
     }
 }
 
@@ -214,15 +304,32 @@ private struct GroupRow: View {
 private struct UnreadBadge: View {
     let count: Int
     
+    var displayText: String {
+        count > 99 ? "99+" : "\(count)"
+    }
+    
     var body: some View {
-        Text("\(count)")
+        Text(displayText)
             .font(.caption2)
-            .bold()
+            .fontWeight(.bold)
             .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.red)
-            .clipShape(Capsule())
+            .padding(.horizontal, count > 9 ? 5 : 6)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.red, Color.red.opacity(0.9)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .shadow(color: Color.red.opacity(0.3), radius: 3, x: 0, y: 1)
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.white, lineWidth: 1.5)
+            )
     }
 }
 

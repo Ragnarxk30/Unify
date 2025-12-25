@@ -37,6 +37,30 @@ struct SupabaseGroupRepository: GroupRepository {
         return groups
     }
     
+    func fetchMemberCount(groupId: UUID) async throws -> Int {
+        // Einfach alle Mitglieder für diese Gruppe holen und zählen
+        let members: [GroupMember] = try await db
+            .from(membersTable)
+            .select("""
+                user_id,
+                group_id, 
+                role,
+                joined_at,
+                user:user!user_id(
+                    id,
+                    display_name,
+                    email
+                )
+            """)
+            .eq("group_id", value: groupId.uuidString)
+            .execute()
+            .value
+        
+        let count = members.count
+        print("✅ fetchMemberCount für Gruppe \(groupId): \(count) Mitglieder")
+        return count
+    }
+    
     func fetchGroupMembers(groupId: UUID) async throws -> [GroupMember] {
         // 1) Gruppe holen um owner_id zu bekommen
         let group: AppGroup = try await db
