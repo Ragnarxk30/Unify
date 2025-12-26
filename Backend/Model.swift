@@ -66,7 +66,7 @@ struct Message: Identifiable, Codable {
         case content
         case sent_by
         case sent_at
-        case is_edited  // 👈 FEHLT! Hinzufügen!
+        case is_edited
         case user
         case message_type
         case voice_duration
