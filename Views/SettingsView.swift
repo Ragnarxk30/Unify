@@ -46,7 +46,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 // MARK: - Profil Section
-                Section {
+                Section("Profil") {
                     if let user = session.currentUser {
                         if isEditingName {
                             EditNameView(
@@ -500,44 +500,36 @@ private struct ProfileHeaderView: View {
     let onDeletePhoto: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                ProfileAvatarView(
-                    profileImage: profileImage,
-                    hasProfileImage: hasProfileImage,
-                    isUploadingImage: isUploadingImage,
-                    onChangePhoto: onChangePhoto,
-                    onDeletePhoto: onDeletePhoto
-                )
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(user.display_name)
-                        .font(.headline)
-                    Text(user.email)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                ProfileMenuButton(
-                    hasProfileImage: hasProfileImage,
-                    onEditName: onEditName,
-                    onEditEmail: onEditEmail,
-                    onChangePassword: onChangePassword,
-                    onChangePhoto: onChangePhoto,
-                    onDeletePhoto: onDeletePhoto
-                )
+        HStack(alignment: .center, spacing: 14) {
+            ProfileAvatarView(
+                profileImage: profileImage,
+                hasProfileImage: hasProfileImage,
+                isUploadingImage: isUploadingImage,
+                onChangePhoto: onChangePhoto,
+                onDeletePhoto: onDeletePhoto
+            )
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(user.display_name)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(user.email)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             
-            Divider()
+            Spacer()
+            
+            ProfileMenuButton(
+                hasProfileImage: hasProfileImage,
+                onEditName: onEditName,
+                onEditEmail: onEditEmail,
+                onChangePassword: onChangePassword,
+                onChangePhoto: onChangePhoto,
+                onDeletePhoto: onDeletePhoto
+            )
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
-        )
-        .listRowBackground(Color.clear)
+        .padding(.vertical, 6)
     }
 }
 

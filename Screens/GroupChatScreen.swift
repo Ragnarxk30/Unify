@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Group Tab Enum
 enum GroupTab: String, CaseIterable {
     case chat = "Chat"
-    case calendar = "Gruppenkalender"
+    case calendar = "Kalender"
 }
 
 struct GroupChatScreen: View {
@@ -76,7 +76,7 @@ struct GroupChatScreen: View {
                                         HStack(spacing: 4) {
                                             Image(systemName: "chevron.left")
                                                 .font(.body.weight(.semibold))
-                                            Text(selectedTab == .chat ? "Chat" : "Gruppenkalender")
+                                            Text(selectedTab == .chat ? "Chat" : "Kalender")
                                                 .font(.body)
                                         }
                                     }
@@ -99,7 +99,7 @@ struct GroupChatScreen: View {
                 }
             }
         }
-        .navigationTitle(selectedTab == .chat ? currentGroup.name : "Gruppenkalender")
+        .navigationTitle(currentGroup.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {

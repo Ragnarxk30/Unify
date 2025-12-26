@@ -216,6 +216,20 @@ final class SessionStore: ObservableObject {
         lastActivityTime = Date()
     }
 
+    /// Wird aufgerufen wenn App wieder aktiv wird - prüft ob Timeout überschritten
+    func checkInactivityOnResume() async {
+        guard isSignedIn else { return }
+        
+        let timeSinceLastActivity = Date().timeIntervalSince(lastActivityTime)
+        
+        if timeSinceLastActivity > inactivityTimeout {
+            print("⏱️ Inaktivität: \(Int(timeSinceLastActivity))s > \(Int(inactivityTimeout))s - Auto-Logout")
+            await signOut()
+        } else {
+            print("✅ Inaktivität: \(Int(timeSinceLastActivity))s - noch OK")
+        }
+    }
+
     private func checkAndHandleInactivity() async {
         guard isSignedIn else { return }
 

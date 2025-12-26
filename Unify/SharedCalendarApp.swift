@@ -4,6 +4,7 @@ import Supabase
 @main
 struct SharedCalendarApp: App {
     @StateObject private var session = SessionStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -23,6 +24,38 @@ struct SharedCalendarApp: App {
             .onOpenURL { url in
                 handleDeepLink(url)
             }
+            .onChange(of: scenePhase) { oldPhase, newPhase in
+                handleScenePhaseChange(from: oldPhase, to: newPhase)
+            }
+        }
+    }
+    
+    private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        switch newPhase {
+        case .active:
+            // App wurde geöffnet/reaktiviert
+            session.isAppActive = true
+            session.recordActivity()
+            print("📱 App aktiv - Aktivität aufgezeichnet")
+            
+            // Prüfe ob Session noch gültig ist nach Hintergrund
+            Task {
+                await session.checkInactivityOnResume()
+            }
+            
+        case .inactive:
+            // App geht in den Hintergrund (kurz)
+            session.recordActivity()
+            print("📱 App inaktiv")
+            
+        case .background:
+            // App ist im Hintergrund
+            session.isAppActive = false
+            session.recordActivity()
+            print("📱 App im Hintergrund - letzte Aktivität gespeichert")
+            
+        @unknown default:
+            break
         }
     }
     
