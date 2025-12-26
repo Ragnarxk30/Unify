@@ -103,20 +103,13 @@ struct GroupChatScreen: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             if !showEventsList {
-                // Settings Button (Links)
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "person.2.fill")
-                            .font(.body)
-                    }
-                    .accessibilityLabel("Gruppeneinstellungen")
-                }
-
-                // Tab Switcher (Mitte)
-                ToolbarItem(placement: .principal) {
-                    GroupTabSwitcher(selectedTab: $selectedTab)
+                // Tab Switcher mit Settings (Rechts)
+                ToolbarItem(placement: .topBarTrailing) {
+                    GroupTabSwitcher(
+                        selectedTab: $selectedTab,
+                        isSettingsOpen: showSettings,
+                        onSettingsTap: { showSettings = true }
+                    )
                 }
             }
         }
@@ -153,10 +146,31 @@ struct GroupChatScreen: View {
 // MARK: - Custom Tab Switcher
 private struct GroupTabSwitcher: View {
     @Binding var selectedTab: GroupTab
+    var isSettingsOpen: Bool
+    var onSettingsTap: () -> Void
     @Namespace private var animation
-    
+
     var body: some View {
         HStack(spacing: 4) {
+            // Settings Button (links, öffnet Sheet)
+            Button {
+                onSettingsTap()
+            } label: {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSettingsOpen ? .white : .secondary)
+                    .frame(width: 36, height: 32)
+                    .background {
+                        if isSettingsOpen {
+                            Capsule()
+                                .fill(Color.accentColor)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSettingsOpen)
+
+            // Chat & Kalender Tabs
             ForEach(GroupTab.allCases, id: \.self) { tab in
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
