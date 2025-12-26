@@ -47,120 +47,112 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // MARK: - Profil Section
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Profil")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-
-                        if let user = session.currentUser {
-                            if isEditingName {
-                                EditNameCard(
-                                    editedDisplayName: $editedDisplayName,
-                                    isSavingName: isSavingName,
-                                    currentName: user.display_name,
-                                    onCancel: {
-                                        isEditingName = false
-                                        editedDisplayName = user.display_name
-                                    },
-                                    onSave: { Task { await saveDisplayName() } }
-                                )
-                            } else if isEditingEmail {
-                                EditEmailCard(
-                                    editedEmail: $editedEmail,
-                                    isSavingEmail: isSavingEmail,
-                                    currentEmail: user.email,
-                                    onCancel: {
-                                        isEditingEmail = false
-                                        editedEmail = user.email
-                                    },
-                                    onSave: { Task { await changeEmail() } }
-                                )
-                            } else if isEditingPassword {
-                                EditPasswordCard(
-                                    newPassword: $newPassword,
-                                    confirmPassword: $confirmPassword,
-                                    isChangingPassword: isChangingPassword,
-                                    onCancel: {
-                                        isEditingPassword = false
-                                        newPassword = ""
-                                        confirmPassword = ""
-                                    },
-                                    onSave: { Task { await changePassword() } }
-                                )
-                            } else {
-                                ProfileRow(
-                                    user: user,
-                                    profileImage: profileImage,
-                                    hasProfileImage: hasProfileImage,
-                                    isUploadingImage: isUploadingImage,
-                                    onEditName: {
-                                        editedDisplayName = user.display_name
-                                        isEditingName = true
-                                    },
-                                    onEditEmail: {
-                                        editedEmail = user.email
-                                        isEditingEmail = true
-                                    },
-                                    onChangePassword: {
-                                        newPassword = ""
-                                        confirmPassword = ""
-                                        isEditingPassword = true
-                                    },
-                                    onChangePhoto: {
-                                        showPhotoPicker = true
-                                    },
-                                    onDeletePhoto: {
-                                        Task { await deleteProfileImage() }
-                                    }
-                                )
-                            }
+            Form {
+                // MARK: - Profil Section
+                Section("Profil") {
+                    if let user = session.currentUser {
+                        if isEditingName {
+                            EditNameView(
+                                editedDisplayName: $editedDisplayName,
+                                isSavingName: isSavingName,
+                                currentName: user.display_name,
+                                onCancel: {
+                                    isEditingName = false
+                                    editedDisplayName = user.display_name
+                                },
+                                onSave: { Task { await saveDisplayName() } }
+                            )
+                        } else if isEditingEmail {
+                            EditEmailView(
+                                editedEmail: $editedEmail,
+                                isSavingEmail: isSavingEmail,
+                                currentEmail: user.email,
+                                onCancel: {
+                                    isEditingEmail = false
+                                    editedEmail = user.email
+                                },
+                                onSave: { Task { await changeEmail() } }
+                            )
+                        } else if isEditingPassword {
+                            EditPasswordView(
+                                newPassword: $newPassword,
+                                confirmPassword: $confirmPassword,
+                                isChangingPassword: isChangingPassword,
+                                onCancel: {
+                                    isEditingPassword = false
+                                    newPassword = ""
+                                    confirmPassword = ""
+                                },
+                                onSave: { Task { await changePassword() } }
+                            )
                         } else {
-                            ProfilePlaceholderRow()
+                            ProfileHeaderView(
+                                user: user,
+                                profileImage: profileImage,
+                                hasProfileImage: hasProfileImage,
+                                isUploadingImage: isUploadingImage,
+                                onEditName: {
+                                    editedDisplayName = user.display_name
+                                    isEditingName = true
+                                },
+                                onEditEmail: {
+                                    editedEmail = user.email
+                                    isEditingEmail = true
+                                },
+                                onChangePassword: {
+                                    newPassword = ""
+                                    confirmPassword = ""
+                                    isEditingPassword = true
+                                },
+                                onChangePhoto: {
+                                    showPhotoPicker = true
+                                },
+                                onDeletePhoto: {
+                                    Task { await deleteProfileImage() }
+                                }
+                            )
                         }
+                    } else {
+                        ProfilePlaceholderView()
                     }
+                }
 
-                    // MARK: - Erscheinungsbild
-                    AppearanceRow(
+                // MARK: - Erscheinungsbild
+                Section("Erscheinungsbild") {
+                    AppearancePickerView(
                         appAppearance: $appAppearance,
                         onAppearanceChange: setAppearance
                     )
+                }
 
-                    // MARK: - Abmelden
-                    ActionRow(
-                        title: "Abmelden",
-                        icon: "rectangle.portrait.and.arrow.right",
-                        color: .red
-                    ) {
+                // MARK: - Abmelden
+                Section {
+                    Button(role: .destructive) {
                         showSignOutConfirm = true
-                    }
-
-                    // MARK: - Account löschen
-                    VStack(alignment: .leading, spacing: 8) {
-                        ActionRow(
-                            title: "Account löschen",
-                            icon: "trash",
-                            color: .red,
-                            isLoading: isDeletingAccount
-                        ) {
-                            showDeleteAccountConfirm = true
-                        }
-                        .disabled(isDeletingAccount)
-
-                        Text("Diese Aktion kann nicht rückgängig gemacht werden. Alle deine Daten werden dauerhaft gelöscht.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
+                    } label: {
+                        Text("Abmelden")
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 32)
+
+                // MARK: - Account löschen
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAccountConfirm = true
+                    } label: {
+                        HStack {
+                            if isDeletingAccount {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            }
+                            Text("Account löschen")
+                        }
+                    }
+                    .disabled(isDeletingAccount)
+                } footer: {
+                    Text("Diese Aktion kann nicht rückgängig gemacht werden. Alle deine Daten werden dauerhaft gelöscht.")
+                        .font(.caption)
+                }
             }
-            .background(Color(.systemGroupedBackground))
             .navigationTitle("Einstellungen")
             .alert("Hinweis", isPresented: .constant(alertMessage != nil)) {
                 Button("OK") { alertMessage = nil }
@@ -424,8 +416,8 @@ private enum EmailValidator {
     }
 }
 
-// MARK: - Profile Row
-private struct ProfileRow: View {
+// MARK: - Profile Header View
+private struct ProfileHeaderView: View {
     let user: AppUser
     let profileImage: UIImage?
     let hasProfileImage: Bool
@@ -437,227 +429,152 @@ private struct ProfileRow: View {
     let onDeletePhoto: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            // Avatar
-            Menu {
-                Button { onChangePhoto() } label: {
-                    Label("Profilbild ändern", systemImage: "photo")
-                }
-                if hasProfileImage {
-                    Button(role: .destructive) { onDeletePhoto() } label: {
-                        Label("Profilbild löschen", systemImage: "trash")
-                    }
-                }
-            } label: {
-                Group {
-                    if isUploadingImage {
-                        ProgressView()
-                            .frame(width: 52, height: 52)
-                    } else if let profileImage = profileImage {
-                        Image(uiImage: profileImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                            Text(String(user.display_name.prefix(2)).uppercased())
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                }
-                .frame(width: 52, height: 52)
-                .clipShape(Circle())
-            }
+        HStack(alignment: .center, spacing: 14) {
+            ProfileAvatarView(
+                user: user,
+                profileImage: profileImage,
+                hasProfileImage: hasProfileImage,
+                isUploadingImage: isUploadingImage,
+                onChangePhoto: onChangePhoto,
+                onDeletePhoto: onDeletePhoto
+            )
 
-            // Info
             VStack(alignment: .leading, spacing: 4) {
                 Text(user.display_name)
-                    .font(.body.weight(.semibold))
+                    .font(.headline)
                     .foregroundStyle(.primary)
                 Text(user.email)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            // Settings Menu
-            Menu {
-                Button { onEditName() } label: {
-                    Label("Benutzername bearbeiten", systemImage: "pencil")
+            ProfileMenuButton(
+                hasProfileImage: hasProfileImage,
+                onEditName: onEditName,
+                onEditEmail: onEditEmail,
+                onChangePassword: onChangePassword,
+                onChangePhoto: onChangePhoto,
+                onDeletePhoto: onDeletePhoto
+            )
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Profile Avatar View
+private struct ProfileAvatarView: View {
+    let user: AppUser
+    let profileImage: UIImage?
+    let hasProfileImage: Bool
+    let isUploadingImage: Bool
+    let onChangePhoto: () -> Void
+    let onDeletePhoto: () -> Void
+
+    var body: some View {
+        Menu {
+            Button {
+                onChangePhoto()
+            } label: {
+                Label("Profilbild ändern", systemImage: "photo")
+            }
+
+            if hasProfileImage {
+                Button(role: .destructive) {
+                    onDeletePhoto()
+                } label: {
+                    Label("Profilbild löschen", systemImage: "trash")
                 }
-                Button { onChangePassword() } label: {
-                    Label("Passwort ändern", systemImage: "key")
-                }
-                Button { onEditEmail() } label: {
-                    Label("E-Mail ändern", systemImage: "envelope")
-                }
-                Divider()
-                Button { onChangePhoto() } label: {
-                    Label("Profilbild ändern", systemImage: "photo")
-                }
-                if hasProfileImage {
-                    Button(role: .destructive) { onDeletePhoto() } label: {
-                        Label("Profilbild löschen", systemImage: "trash")
+            }
+        } label: {
+            Group {
+                if isUploadingImage {
+                    ProgressView()
+                        .frame(width: 52, height: 52)
+                } else if let profileImage = profileImage {
+                    Image(uiImage: profileImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        Text(String(user.display_name.prefix(2)).uppercased())
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
                     }
                 }
+            }
+            .frame(width: 52, height: 52)
+            .clipShape(Circle())
+        }
+    }
+}
+
+// MARK: - Profile Menu Button
+private struct ProfileMenuButton: View {
+    let hasProfileImage: Bool
+    let onEditName: () -> Void
+    let onEditEmail: () -> Void
+    let onChangePassword: () -> Void
+    let onChangePhoto: () -> Void
+    let onDeletePhoto: () -> Void
+
+    var body: some View {
+        Menu {
+            Button {
+                onEditName()
             } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 36, height: 36)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(Circle())
-            }
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-// MARK: - Profile Placeholder Row
-private struct ProfilePlaceholderRow: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            Circle()
-                .fill(Color(.systemGray5))
-                .frame(width: 52, height: 52)
-
-            VStack(alignment: .leading, spacing: 4) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(.systemGray5))
-                    .frame(width: 100, height: 16)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(.systemGray5))
-                    .frame(width: 150, height: 12)
+                Label("Benutzername bearbeiten", systemImage: "pencil")
             }
 
-            Spacer()
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .redacted(reason: .placeholder)
-    }
-}
+            Button {
+                onChangePassword()
+            } label: {
+                Label("Passwort ändern", systemImage: "key")
+            }
 
-// MARK: - Appearance Row
-private struct AppearanceRow: View {
-    @Binding var appAppearance: String
-    let onAppearanceChange: (UIUserInterfaceStyle) -> Void
+            Button {
+                onEditEmail()
+            } label: {
+                Label("E-Mail ändern", systemImage: "envelope")
+            }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Erscheinungsbild")
-                .font(.subheadline.weight(.medium))
+            Button {
+                onChangePhoto()
+            } label: {
+                Label("Profilbild ändern", systemImage: "photo")
+            }
+
+            if hasProfileImage {
+                Button(role: .destructive) {
+                    onDeletePhoto()
+                } label: {
+                    Label("Profilbild löschen", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-
-            HStack(spacing: 8) {
-                AppearanceButton(
-                    icon: "sun.max.fill",
-                    title: "Hell",
-                    isSelected: appAppearance == "light"
-                ) {
-                    appAppearance = "light"
-                    onAppearanceChange(.light)
-                }
-
-                AppearanceButton(
-                    icon: "moon.fill",
-                    title: "Dunkel",
-                    isSelected: appAppearance == "dark"
-                ) {
-                    appAppearance = "dark"
-                    onAppearanceChange(.dark)
-                }
-
-                AppearanceButton(
-                    icon: "gear",
-                    title: "System",
-                    isSelected: appAppearance == "system"
-                ) {
-                    appAppearance = "system"
-                    onAppearanceChange(.unspecified)
-                }
-            }
+                .padding(8)
+                .background(
+                    Circle()
+                        .fill(Color(.secondarySystemBackground))
+                )
         }
     }
 }
 
-// MARK: - Appearance Button
-private struct AppearanceButton: View {
-    let icon: String
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Color.primary : Color(.tertiarySystemGroupedBackground))
-            )
-            .foregroundStyle(isSelected ? Color(.systemBackground) : .secondary)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Action Row
-private struct ActionRow: View {
-    let title: String
-    let icon: String
-    let color: Color
-    var isLoading: Bool = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                if isLoading {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .frame(width: 20, height: 20)
-                } else {
-                    Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
-                }
-                Text(title)
-                    .font(.body.weight(.medium))
-                Spacer()
-            }
-            .foregroundStyle(color)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Edit Name Card
-private struct EditNameCard: View {
+// MARK: - Edit Name View
+private struct EditNameView: View {
     @Binding var editedDisplayName: String
     let isSavingName: Bool
     let currentName: String
@@ -671,52 +588,53 @@ private struct EditNameCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Benutzername bearbeiten")
-                .font(.subheadline.weight(.semibold))
+                .font(.headline)
 
             TextField("Benutzername", text: $editedDisplayName)
                 .textInputAutocapitalization(.words)
-                .padding(12)
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .autocorrectionDisabled(false)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemBackground))
+                )
 
-            HStack(spacing: 10) {
-                Button("Abbrechen") { onCancel() }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .disabled(isSavingName)
-
-                Button { onSave() } label: {
-                    Group {
-                        if isSavingName {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Speichern")
-                        }
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(canSave ? Color.blue : Color.blue.opacity(0.5))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack {
+                Button("Abbrechen") {
+                    onCancel()
                 }
+                .buttonStyle(.bordered)
+                .disabled(isSavingName)
+
+                Spacer()
+
+                Button {
+                    onSave()
+                } label: {
+                    if isSavingName {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Speichern")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
                 .disabled(!canSave)
             }
-            .buttonStyle(.plain)
         }
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
     }
 }
 
-// MARK: - Edit Email Card
-private struct EditEmailCard: View {
+// MARK: - Edit Email View
+private struct EditEmailView: View {
     @Binding var editedEmail: String
     let isSavingEmail: Bool
     let currentEmail: String
@@ -731,35 +649,43 @@ private struct EditEmailCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("E-Mail ändern")
-                .font(.subheadline.weight(.semibold))
+                .font(.headline)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Aktuelle E-Mail")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
                 Text(currentEmail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.tertiarySystemGroupedBackground).opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(.tertiarySystemBackground).opacity(0.5))
+                    )
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Neue E-Mail")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
                 TextField("Neue E-Mail-Adresse", text: $editedEmail)
                     .textContentType(.emailAddress)
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
-                    .padding(12)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(.tertiarySystemBackground))
+                    )
             }
 
             if !editedEmail.isEmpty && !EmailValidator.isValid(editedEmail) {
@@ -768,42 +694,39 @@ private struct EditEmailCard: View {
                     .foregroundColor(.red)
             }
 
-            HStack(spacing: 10) {
-                Button("Abbrechen") { onCancel() }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .disabled(isSavingEmail)
-
-                Button { onSave() } label: {
-                    Group {
-                        if isSavingEmail {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Speichern")
-                        }
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(canSave ? Color.blue : Color.blue.opacity(0.5))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack {
+                Button("Abbrechen") {
+                    onCancel()
                 }
+                .buttonStyle(.bordered)
+                .disabled(isSavingEmail)
+
+                Spacer()
+
+                Button {
+                    onSave()
+                } label: {
+                    if isSavingEmail {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Speichern")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
                 .disabled(!canSave)
             }
-            .buttonStyle(.plain)
         }
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
     }
 }
 
-// MARK: - Edit Password Card
-private struct EditPasswordCard: View {
+// MARK: - Edit Password View
+private struct EditPasswordView: View {
     @Binding var newPassword: String
     @Binding var confirmPassword: String
     let isChangingPassword: Bool
@@ -825,14 +748,15 @@ private struct EditPasswordCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Passwort ändern")
-                .font(.subheadline.weight(.semibold))
+                .font(.headline)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Neues Passwort")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
                 Group {
                     if showPassword {
                         TextField("Neues Passwort", text: $newPassword)
@@ -840,15 +764,19 @@ private struct EditPasswordCard: View {
                         SecureField("Neues Passwort", text: $newPassword)
                     }
                 }
-                .padding(12)
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemBackground))
+                )
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Passwort bestätigen")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
                 Group {
                     if showPassword {
                         TextField("Passwort bestätigen", text: $confirmPassword)
@@ -856,69 +784,130 @@ private struct EditPasswordCard: View {
                         SecureField("Passwort bestätigen", text: $confirmPassword)
                     }
                 }
-                .padding(12)
-                .background(Color(.tertiarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemBackground))
+                )
             }
 
             Button {
                 showPassword.toggle()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: showPassword ? "eye.slash" : "eye")
-                    Text(showPassword ? "Verbergen" : "Anzeigen")
-                }
+                Label(
+                    showPassword ? "Passwort verbergen" : "Passwort anzeigen",
+                    systemImage: showPassword ? "eye.slash" : "eye"
+                )
                 .font(.caption)
-                .foregroundStyle(.blue)
             }
 
-            // Validation
-            if !newPassword.isEmpty && !isPasswordValid {
-                Text("Mindestens 6 Zeichen erforderlich")
-                    .font(.caption)
-                    .foregroundColor(.red)
-            }
-            if !confirmPassword.isEmpty && !passwordsMatch {
-                Text("Passwörter stimmen nicht überein")
-                    .font(.caption)
-                    .foregroundColor(.red)
-            }
-            if passwordsMatch && isPasswordValid {
-                Text("Passwörter stimmen überein")
-                    .font(.caption)
-                    .foregroundColor(.green)
-            }
-
-            HStack(spacing: 10) {
-                Button("Abbrechen") { onCancel() }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color(.tertiarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .disabled(isChangingPassword)
-
-                Button { onSave() } label: {
-                    Group {
-                        if isChangingPassword {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Ändern")
-                        }
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(canSave ? Color.blue : Color.blue.opacity(0.5))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            // Validation Feedback
+            VStack(alignment: .leading, spacing: 4) {
+                if !newPassword.isEmpty && !isPasswordValid {
+                    Text("Passwort muss mindestens 6 Zeichen lang sein")
+                        .font(.caption)
+                        .foregroundColor(.red)
                 }
+
+                if !confirmPassword.isEmpty && !passwordsMatch {
+                    Text("Passwörter stimmen nicht überein")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+
+                if passwordsMatch && isPasswordValid {
+                    Text("Passwörter stimmen überein")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+            }
+
+            HStack {
+                Button("Abbrechen") {
+                    onCancel()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isChangingPassword)
+
+                Spacer()
+
+                Button {
+                    onSave()
+                } label: {
+                    if isChangingPassword {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Ändern")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
                 .disabled(!canSave)
             }
-            .buttonStyle(.plain)
         }
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .listRowBackground(Color.clear)
+    }
+}
+
+// MARK: - Profile Placeholder View
+private struct ProfilePlaceholderView: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.circle")
+                .font(.system(size: 32))
+            VStack(alignment: .leading) {
+                Text("Angemeldet als")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Lade …")
+                    .redacted(reason: .placeholder)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+}
+
+// MARK: - Appearance Picker View
+private struct AppearancePickerView: View {
+    @Binding var appAppearance: String
+    let onAppearanceChange: (UIUserInterfaceStyle) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            appearanceButton(icon: "sun.max.fill", title: "Hell", key: "light", style: .light)
+            appearanceButton(icon: "moon.fill", title: "Dunkel", key: "dark", style: .dark)
+            appearanceButton(icon: "gear", title: "System", key: "system", style: .unspecified)
+        }
+    }
+
+    private func appearanceButton(icon: String, title: String, key: String, style: UIUserInterfaceStyle) -> some View {
+        Button {
+            appAppearance = key
+            onAppearanceChange(style)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(appAppearance == key ? Color.primary : Color(.secondarySystemBackground))
+            )
+            .foregroundStyle(appAppearance == key ? Color(.systemBackground) : .primary)
+        }
+        .buttonStyle(.plain)
     }
 }
