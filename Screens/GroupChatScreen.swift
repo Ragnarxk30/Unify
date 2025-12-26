@@ -41,22 +41,31 @@ struct GroupChatScreen: View {
                     }
                 }
 
-                // Invisible edge swipe area (right edge)
-                HStack {
+                // Invisible edge swipe area (right edge, vertically centered)
+                VStack {
                     Spacer()
-                    Color.clear
-                        .frame(width: 40)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 20)
-                                .onEnded { value in
-                                    if value.translation.width < -30 {
-                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                            showEventsList = true
+                        .frame(height: 120) // Platz für Toolbar/Navigation oben
+
+                    HStack {
+                        Spacer()
+                        Color.clear
+                            .frame(width: 40)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 20)
+                                    .onEnded { value in
+                                        if value.translation.width < -30 {
+                                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                                showEventsList = true
+                                            }
                                         }
                                     }
-                                }
-                        )
+                            )
+                    }
+                    .frame(height: geometry.size.height - 240) // Mitte des Bildschirms
+
+                    Spacer()
+                        .frame(height: 120) // Platz für Input-Bereich unten
                 }
 
                 // Events List Page Overlay (slides in from right)
@@ -76,7 +85,7 @@ struct GroupChatScreen: View {
                                         HStack(spacing: 4) {
                                             Image(systemName: "chevron.left")
                                                 .font(.body.weight(.semibold))
-                                            Text(currentGroup.name)
+                                            Text("Zurück")
                                                 .font(.body)
                                         }
                                     }

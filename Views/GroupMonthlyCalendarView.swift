@@ -59,16 +59,6 @@ struct GroupMonthlyCalendarView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Gruppenkalender")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddEvent = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Neuen Termin anlegen")
-            }
-        }
         .sheet(isPresented: $showAddEvent) {
             GroupEventsView(groupID: groupID)
                 .presentationDetents([.medium, .large])
