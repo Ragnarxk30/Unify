@@ -70,33 +70,21 @@ struct CreateEventView: View {
                             Text("Gruppe auswählen")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.secondary)
-                            
-                            Menu {
+
+                            Picker("Gruppe", selection: $selectedGroupId) {
+                                Text("Gruppe auswählen...")
+                                    .tag(nil as UUID?)
                                 ForEach(groups) { group in
-                                    Button {
-                                        selectedGroupId = group.id
-                                    } label: {
-                                        HStack {
-                                            Text(group.name)
-                                            if selectedGroupId == group.id {
-                                                Image(systemName: "checkmark")
-                                            }
-                                        }
-                                    }
+                                    Text(group.name)
+                                        .tag(group.id as UUID?)
                                 }
-                            } label: {
-                                HStack {
-                                    Text(selectedGroupName)
-                                        .foregroundStyle(selectedGroupId == nil ? .secondary : .primary)
-                                    Spacer()
-                                    Image(systemName: "chevron.down")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(14)
-                                .background(Color(.secondarySystemGroupedBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
+                            .pickerStyle(.menu)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
