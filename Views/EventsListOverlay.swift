@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EventsListOverlay: View {
     let groupID: UUID
+    let groupName: String
     @Binding var isPresented: Bool
     let previousTab: GroupTab
 
@@ -9,7 +10,7 @@ struct EventsListOverlay: View {
 
     var body: some View {
         NavigationStack {
-            GroupEventsList(groupID: groupID)
+            GroupEventsList(groupID: groupID, groupName: groupName)
                 .navigationTitle("Termine")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -23,27 +24,12 @@ struct EventsListOverlay: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "chevron.left")
                                     .font(.body.weight(.semibold))
-                                Text(previousTab.rawValue)
+                                Text(groupName)
                                     .font(.body)
                             }
                         }
-                        .accessibilityLabel("Zurück zu \(previousTab.rawValue)")
+                        .accessibilityLabel("Zurück zu \(groupName)")
                     }
-
-                    // Plus Button (Rechts)
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showAddEvent = true
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.body)
-                        }
-                        .accessibilityLabel("Neuen Termin anlegen")
-                    }
-                }
-                .sheet(isPresented: $showAddEvent) {
-                    GroupEventsView(groupID: groupID)
-                        .presentationDetents([.medium, .large])
                 }
         }
         .background(Color(.systemGroupedBackground))

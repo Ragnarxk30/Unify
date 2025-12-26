@@ -62,7 +62,7 @@ struct GroupChatScreen: View {
                 // Events List Page Overlay (slides in from right)
                 if showEventsList {
                     NavigationStack {
-                        GroupEventsList(groupID: currentGroup.id)
+                        GroupEventsList(groupID: currentGroup.id, groupName: currentGroup.name)
                             .navigationTitle("Termine")
                             .navigationBarTitleDisplayMode(.inline)
                             .navigationBarBackButtonHidden(true)
@@ -79,15 +79,6 @@ struct GroupChatScreen: View {
                                             Text(currentGroup.name)
                                                 .font(.body)
                                         }
-                                    }
-                                }
-
-                                ToolbarItem(placement: .topBarTrailing) {
-                                    Button {
-                                        // Show create event sheet
-                                    } label: {
-                                        Image(systemName: "plus")
-                                            .font(.body)
                                     }
                                 }
                             }

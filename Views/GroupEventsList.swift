@@ -2,10 +2,12 @@ import SwiftUI
 
 struct GroupEventsList: View {
     let groupID: UUID
+    let groupName: String
 
     @State private var events: [Event] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var showCreateEvent = false
 
     // Swipe State
     @State private var swipedEventId: UUID?
@@ -30,12 +32,28 @@ struct GroupEventsList: View {
                 eventsList
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showCreateEvent = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.body)
+                }
+            }
+        }
         .task {
             await loadGroupEvents()
             await loadGroupInfo()
         }
         .refreshable {
             await loadGroupEvents()
+        }
+        .sheet(isPresented: $showCreateEvent) {
+            CreateGroupEventSheet(groupID: groupID, groupName: groupName) {
+                Task { await loadGroupEvents() }
+            }
+            .presentationDetents([.medium])
         }
         .sheet(isPresented: $showEditSheet) {
             if let event = editingEvent {
@@ -289,6 +307,198 @@ struct GroupEventsList: View {
                 errorMessage = error.localizedDescription
             }
             print("❌ Fehler beim Löschen: \(error)")
+        }
+    }
+}
+
+// MARK: - Create Group Event Sheet
+private struct CreateGroupEventSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    let groupID: UUID
+    let groupName: String
+    let onCreated: () -> Void
+    
+    @State private var title = ""
+    @State private var details = ""
+    @State private var startDate = Date().addingTimeInterval(3600)
+    @State private var endDate = Date().addingTimeInterval(7200)
+    @State private var isCreating = false
+    @State private var showDetails = false
+    @FocusState private var isTitleFocused: Bool
+    
+    private var canCreate: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreating
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header Icon
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.orange.opacity(0.6), Color.orange.opacity(0.4)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 64, height: 64)
+                        
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.top, 8)
+                    
+                    // Gruppen-Info
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.3.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(groupName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(Capsule())
+                    
+                    // Titel
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Titel")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        
+                        TextField("Was steht an?", text: $title)
+                            .font(.body)
+                            .padding(14)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .focused($isTitleFocused)
+                    }
+                    
+                    // Zeitraum
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Zeitraum")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        
+                        VStack(spacing: 0) {
+                            DatePicker("Start", selection: $startDate)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                            
+                            Divider()
+                                .padding(.leading, 14)
+                            
+                            DatePicker("Ende", selection: $endDate)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                        }
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    
+                    // Details (optional)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showDetails.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Details hinzufügen")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                
+                                Spacer()
+                                
+                                Image(systemName: showDetails ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        
+                        if showDetails {
+                            TextEditor(text: $details)
+                                .font(.body)
+                                .frame(minHeight: 80)
+                                .padding(10)
+                                .background(Color(.secondarySystemGroupedBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Neuer Termin")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await createEvent() }
+                    } label: {
+                        if isCreating {
+                            ProgressView()
+                                .scaleEffect(0.85)
+                        } else {
+                            Text("Erstellen")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(!canCreate)
+                }
+            }
+        }
+        .onChange(of: startDate) { oldValue, newValue in
+            let duration = endDate.timeIntervalSince(oldValue)
+            endDate = newValue.addingTimeInterval(max(duration, 3600))
+        }
+        .onAppear {
+            isTitleFocused = true
+        }
+    }
+    
+    private func createEvent() async {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedTitle.isEmpty else { return }
+        
+        isCreating = true
+        
+        do {
+            let repo = SupabaseEventRepository()
+            try await repo.create(
+                groupId: groupID,
+                title: trimmedTitle,
+                details: trimmedDetails.isEmpty ? nil : trimmedDetails,
+                startsAt: startDate,
+                endsAt: endDate
+            )
+            
+            await MainActor.run {
+                isCreating = false
+                onCreated()
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                isCreating = false
+            }
+            print("❌ Fehler beim Erstellen: \(error)")
         }
     }
 }
