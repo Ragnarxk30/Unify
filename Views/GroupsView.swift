@@ -9,6 +9,7 @@ struct GroupsView: View {
     @State private var isRefreshing = false
     @State private var errorMessage: String?
     @State private var memberCounts: [UUID: Int] = [:]
+    @State private var eventCounts: [UUID: Int] = [:]
     
     @StateObject private var unreadService = UnreadMessagesService.shared
     
@@ -102,17 +103,18 @@ struct GroupsView: View {
     private var groupsListView: some View {
         ZStack(alignment: .top) {
             ScrollView {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: 12) {
                     ForEach(groups) { group in
                         GroupRow(
                             group: group,
                             unreadCount: unreadService.unreadCounts[group.id] ?? 0,
+                            eventCount: eventCounts[group.id] ?? 0,
                             memberCount: memberCounts[group.id] ?? 0
                         )
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, isRefreshing ? 32 : 16)
+                .padding(.horizontal, 16)
+                .padding(.top, isRefreshing ? 32 : 12)
             }
             
             if isRefreshing {
@@ -137,6 +139,7 @@ struct GroupsView: View {
             groups = try await groupRepo.fetchGroups()
             await refreshUnreadCounts()
             await loadMemberCounts()
+            await loadEventCounts()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -176,12 +179,21 @@ struct GroupsView: View {
             }
         }
     }
+    
+    @MainActor
+    private func loadEventCounts() async {
+        for group in groups {
+            let count = await EventCountService.countEventsForGroup(group.id)
+            eventCounts[group.id] = count
+        }
+    }
 }
 
 // MARK: - Group Row
 private struct GroupRow: View {
     let group: AppGroup
     let unreadCount: Int
+    let eventCount: Int
     let memberCount: Int
     
     var memberCountText: String {
@@ -209,7 +221,7 @@ private struct GroupRow: View {
                 }
                 
                 // Gruppen-Info
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(group.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -226,17 +238,22 @@ private struct GroupRow: View {
                 
                 Spacer()
                 
-                // Unread Badge (nur wenn > 0)
-                if unreadCount > 0 {
-                    Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(Color.blue)
-                        )
+                // Badges für Termine und Chat
+                HStack(spacing: 12) {
+                    // Kalender Badge
+                    StatBadge(
+                        icon: "calendar",
+                        count: eventCount,
+                        color: .orange
+                    )
+                    
+                    // Chat Badge
+                    StatBadge(
+                        icon: "bubble.left.and.bubble.right.fill",
+                        count: unreadCount,
+                        color: .green,
+                        showZero: false
+                    )
                 }
                 
                 Image(systemName: "chevron.right")
@@ -249,6 +266,40 @@ private struct GroupRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Stat Badge
+private struct StatBadge: View {
+    let icon: String
+    let count: Int
+    let color: Color
+    var showZero: Bool = true
+    
+    var body: some View {
+        if showZero || count > 0 {
+            VStack(spacing: 2) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: icon)
+                        .font(.system(size: 16))
+                        .foregroundStyle(count > 0 ? color : .secondary)
+                        .frame(width: 28, height: 24)
+                    
+                    if count > 0 {
+                        Text(count > 99 ? "99+" : "\(count)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                Capsule()
+                                    .fill(color)
+                            )
+                            .offset(x: 6, y: -4)
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -4,6 +4,13 @@ import SwiftUI
 enum GroupTab: String, CaseIterable {
     case chat = "Chat"
     case calendar = "Kalender"
+    
+    var icon: String {
+        switch self {
+        case .chat: return "bubble.left.and.bubble.right.fill"
+        case .calendar: return "calendar"
+        }
+    }
 }
 
 struct GroupChatScreen: View {
@@ -24,7 +31,7 @@ struct GroupChatScreen: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Main Content: Chat | Gruppenkalender
+                // Main Content: Chat | Kalender
                 Group {
                     switch selectedTab {
                     case .chat:
@@ -42,14 +49,8 @@ struct GroupChatScreen: View {
                         .contentShape(Rectangle())
                         .gesture(
                             DragGesture(minimumDistance: 20)
-                                .onChanged { value in
-                                    print("🔄 Edge Drag: \(value.translation.width)")
-                                }
                                 .onEnded { value in
-                                    print("✅ Edge Drag ended: \(value.translation.width)")
-                                    // Swipe LEFT from right edge → Show Events List
                                     if value.translation.width < -30 {
-                                        print("🎉 Opening Events List!")
                                         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                                             showEventsList = true
                                         }
@@ -66,7 +67,6 @@ struct GroupChatScreen: View {
                             .navigationBarTitleDisplayMode(.inline)
                             .navigationBarBackButtonHidden(true)
                             .toolbar {
-                                // Custom Back Button (Links)
                                 ToolbarItem(placement: .topBarLeading) {
                                     Button {
                                         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -76,13 +76,12 @@ struct GroupChatScreen: View {
                                         HStack(spacing: 4) {
                                             Image(systemName: "chevron.left")
                                                 .font(.body.weight(.semibold))
-                                            Text(selectedTab == .chat ? "Chat" : "Kalender")
+                                            Text(currentGroup.name)
                                                 .font(.body)
                                         }
                                     }
                                 }
 
-                                // Plus Button (Rechts)
                                 ToolbarItem(placement: .topBarTrailing) {
                                     Button {
                                         // Show create event sheet
@@ -103,9 +102,8 @@ struct GroupChatScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            // Nur anzeigen wenn NICHT im EventsList Sheet
             if !showEventsList {
-                // Settings Icon (Links) - person.2
+                // Settings Button (Links)
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         showSettings = true
@@ -116,15 +114,9 @@ struct GroupChatScreen: View {
                     .accessibilityLabel("Gruppeneinstellungen")
                 }
 
-                // Segmented Picker (Mitte)
+                // Tab Switcher (Mitte)
                 ToolbarItem(placement: .principal) {
-                    Picker("Ansicht", selection: $selectedTab) {
-                        ForEach(GroupTab.allCases, id: \.self) { tab in
-                            Text(tab.rawValue).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 250)
+                    GroupTabSwitcher(selectedTab: $selectedTab)
                 }
             }
         }
@@ -152,9 +144,44 @@ struct GroupChatScreen: View {
         do {
             try await UnreadMessagesService.shared.markAsRead(groupId: group.id)
             hasMarkedAsRead = true
-            print("✅ [GroupChatScreen] Chat als gelesen markiert")
         } catch {
             print("⚠️ [GroupChatScreen] Fehler beim Markieren: \(error)")
         }
+    }
+}
+
+// MARK: - Custom Tab Switcher
+private struct GroupTabSwitcher: View {
+    @Binding var selectedTab: GroupTab
+    @Namespace private var animation
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(GroupTab.allCases, id: \.self) { tab in
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    Image(systemName: tab.icon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(selectedTab == tab ? .white : .secondary)
+                        .frame(width: 36, height: 32)
+                        .background {
+                            if selectedTab == tab {
+                                Capsule()
+                                    .fill(Color.accentColor)
+                                    .matchedGeometryEffect(id: "TAB_BG", in: animation)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(
+            Capsule()
+                .fill(Color(.secondarySystemBackground))
+        )
     }
 }

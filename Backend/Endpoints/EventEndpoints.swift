@@ -316,3 +316,24 @@ enum EventError: LocalizedError {
         }
     }
 }
+
+// MARK: - Event Count Service
+enum EventCountService {
+    /// Zählt alle zukünftigen Termine einer Gruppe
+    static func countEventsForGroup(_ groupId: UUID) async -> Int {
+        let now = Date()
+        do {
+            let events: [Event] = try await supabase
+                .from("event")
+                .select("id, title, details, starts_at, ends_at, group_id, created_by, created_at")
+                .eq("group_id", value: groupId.uuidString)
+                .gte("ends_at", value: now)
+                .execute()
+                .value
+            return events.count
+        } catch {
+            print("⚠️ EventCountService error: \(error)")
+            return 0
+        }
+    }
+}
