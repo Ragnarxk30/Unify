@@ -76,7 +76,6 @@ struct GroupChatView: View {
                 speechRecognitionStatusView
             }
         }
-        .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { handleOnAppear() }
         .onDisappear { handleOnDisappear() }

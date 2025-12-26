@@ -57,8 +57,6 @@ struct GroupMonthlyCalendarView: View {
             }
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("Gruppenkalender")
-        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showAddEvent) {
             GroupEventsView(groupID: groupID)
                 .presentationDetents([.medium, .large])

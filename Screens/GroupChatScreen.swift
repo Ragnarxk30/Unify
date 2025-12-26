@@ -98,7 +98,7 @@ struct GroupChatScreen: View {
                 }
             }
         }
-        .navigationTitle(currentGroup.name)
+        .navigationTitle(showEventsList ? "Termine" : currentGroup.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
