@@ -251,8 +251,7 @@ private struct GroupRow: View {
                     StatBadge(
                         icon: "bubble.left.and.bubble.right.fill",
                         count: unreadCount,
-                        color: .green,
-                        showZero: false
+                        color: .green
                     )
                 }
                 
