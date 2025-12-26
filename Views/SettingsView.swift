@@ -5,7 +5,8 @@ import PhotosUI
 // MARK: - SettingsView
 struct SettingsView: View {
     @EnvironmentObject var session: SessionStore
-    
+    @Environment(\.scenePhase) var scenePhase
+
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var alertMessage: String?
     
@@ -189,8 +190,11 @@ struct SettingsView: View {
                     }
                 }
             }
-            .task {
-                await checkProfilePictureStatus()
+            .task(id: scenePhase) {
+                // ✅ Nur laden wenn App aktiv ist
+                if scenePhase == .active {
+                    await checkProfilePictureStatus()
+                }
             }
         }
     }
@@ -221,17 +225,29 @@ struct SettingsView: View {
     
     // MARK: - Profilbild Funktionen
     private func checkProfilePictureStatus() async {
+        // Task.isCancelled checken
+        guard !Task.isCancelled else {
+            print("⏸️ Profile picture task cancelled")
+            return
+        }
+
         do {
             let exists = try await profileImageService.checkProfilePictureExists()
+
+            guard !Task.isCancelled else { return }
+
             await MainActor.run {
                 hasProfileImage = exists
             }
-            
+
             if exists {
                 await loadProfilePicture()
             }
         } catch {
-            print("❌ Check profile picture error: \(error)")
+            // Cancelled errors nicht loggen
+            if (error as NSError).code != NSURLErrorCancelled {
+                print("❌ Check profile picture error: \(error)")
+            }
         }
     }
     

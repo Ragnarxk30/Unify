@@ -101,6 +101,7 @@ struct ZoomableCalendarView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(titleText)
                     .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Text(subtitleText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -615,6 +616,7 @@ private struct MonthDayCellWithEvents: View {
                             Text(event.title)
                                 .font(.system(size: 8))
                                 .lineLimit(1)
+                                .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 2)
                                 .padding(.vertical, 1)
@@ -625,7 +627,7 @@ private struct MonthDayCellWithEvents: View {
                         if events.count > 3 {
                             Text("+\(events.count - 3)")
                                 .font(.system(size: 7))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary)
                         }
                     }
                     .allowsHitTesting(false)
@@ -982,6 +984,7 @@ private struct EventBlockZoomable: View {
                 Circle().fill(color).frame(width: 8, height: 8)
                 Text(event.title)
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
             }
             Text(timeRangeString(start: event.starts_at, end: event.ends_at))
@@ -1134,6 +1137,7 @@ private struct EventActionSheet: View {
             // Event Info
             Text(event.title)
                 .font(.headline)
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1218,6 +1222,7 @@ private struct EventDetailsSheet: View {
                     // Event Titel
                     Text(event.title)
                         .font(.title.bold())
+                        .foregroundStyle(.primary)
                         .multilineTextAlignment(.center)
 
                     // Zeit Info Card
@@ -1231,6 +1236,7 @@ private struct EventDetailsSheet: View {
                                 .foregroundStyle(.secondary)
                             Text(formattedTimeRange)
                                 .font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
                         }
                         Spacer()
                     }
@@ -1246,6 +1252,7 @@ private struct EventDetailsSheet: View {
                                     .foregroundStyle(.blue)
                                 Text("Details")
                                     .font(.headline)
+                                    .foregroundStyle(.primary)
                             }
                             
                             Text(details)
@@ -1382,6 +1389,7 @@ private struct InlineEventCreateForm: View {
 
                     Text(formattedTime(startTime))
                         .font(.subheadline)
+                        .foregroundStyle(.primary)
 
                     Image(systemName: "arrow.right")
                         .font(.caption2)

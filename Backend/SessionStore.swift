@@ -9,9 +9,14 @@ final class SessionStore: ObservableObject {
     @Published private(set) var isWaitingForEmailConfirmation = false
     @Published var currentUser: AppUser?  // ✅ Aktueller AppUser für alle Views
 
+    // ✅ Activity Tracking für Auto-Logout
+    @Published private(set) var lastActivityTime: Date = Date()
+    private let inactivityTimeout: TimeInterval = 600 // 10 Minuten
+    var isAppActive: Bool = true // ✅ Wird von Scene Phase gesteuert
+
     private var pollTask: Task<Void, Never>?
     private var authStateTask: Task<Void, Never>?
-    private let refreshInterval: TimeInterval = 60 * 15
+    private let refreshInterval: TimeInterval = 60 // ✅ Jede Minute statt alle 15 Min
 
     init() {
         // ✅ KEINE State-Änderungen im init! 
@@ -84,7 +89,11 @@ final class SessionStore: ObservableObject {
         Task {
             await refreshSession()
             if isSignedIn {
-                await loadCurrentUserFromSession()
+                // ✅ Beim App-Start: Falls > 10 Min inaktiv → sofort ausloggen
+                await checkAndHandleInactivity()
+                if isSignedIn { // Nur laden falls noch eingeloggt
+                    await loadCurrentUserFromSession()
+                }
             }
         }
     }
@@ -94,6 +103,10 @@ final class SessionStore: ObservableObject {
         pollTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled && self.isSignedIn {
+                // ✅ Inaktivitäts-Check vor jedem Refresh
+                await self.checkAndHandleInactivity()
+                if !self.isSignedIn { return } // Falls ausgeloggt, stoppe Polling
+
                 try? await Task.sleep(nanoseconds: UInt64(refreshInterval * 1_000_000_000))
                 await self.refreshSession()
                 await self.loadCurrentUserFromSession()
@@ -195,6 +208,29 @@ final class SessionStore: ObservableObject {
             }
         } catch {
             print("❌ Konnte currentUser nicht laden: \(error)")
+        }
+    }
+
+    // MARK: - Activity Tracking & Auto-Logout
+    func recordActivity() {
+        lastActivityTime = Date()
+    }
+
+    private func checkAndHandleInactivity() async {
+        guard isSignedIn else { return }
+
+        // ✅ Wenn App aktiv ist (offen), als Aktivität zählen
+        if isAppActive {
+            lastActivityTime = Date()
+            return // Kein Timeout während App aktiv
+        }
+
+        // ✅ Nur Timeout wenn App im Hintergrund/geschlossen
+        let timeSinceLastActivity = Date().timeIntervalSince(lastActivityTime)
+
+        if timeSinceLastActivity > inactivityTimeout {
+            print("⏱️ App > 10 Min im Hintergrund - Auto-Logout")
+            await signOut()
         }
     }
 }
