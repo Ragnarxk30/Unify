@@ -38,8 +38,8 @@ struct GroupImageViewerSheet: View {
             if let displayImage = loadedImage ?? image {
                 Image(uiImage: displayImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.9, maxHeight: UIScreen.main.bounds.height * 0.7)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 400, height: 550)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .scaleEffect(scale)
                     .offset(offset)

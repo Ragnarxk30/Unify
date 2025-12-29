@@ -37,6 +37,7 @@ struct GroupSettingsView: View {
 
     // Gruppenbild State
     @State private var groupImage: UIImage?
+    @State private var groupImageCircle: UIImage?  // Zugeschnittener Circle-Ausschnitt
     @State private var hasGroupImage = false
     @State private var isUploadingGroupImage = false
     @State private var showGroupPhotoPicker = false
@@ -44,6 +45,10 @@ struct GroupSettingsView: View {
 
     // Gruppenbild Viewer State
     @State private var showGroupImageViewer = false
+
+    // Image Cropper State
+    @State private var showImageCropper = false
+    @State private var imageToCrop: UIImage?
     
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
@@ -162,14 +167,38 @@ struct GroupSettingsView: View {
                 )
             }
             .photosPicker(isPresented: $showGroupPhotoPicker, selection: $groupPhotoPickerItem, matching: .images)
-            .onChange(of: groupPhotoPickerItem) { _, newItem in
+            .onChange(of: groupPhotoPickerItem) { oldItem, newItem in
                 guard let newItem else { return }
+
                 Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self) {
-                        await uploadGroupImage(data)
+                    defer {
+                        // Picker Item zurücksetzen für nächstes Mal
+                        Task { @MainActor in
+                            groupPhotoPickerItem = nil
+                        }
+                    }
+
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        print("📸 Neues Foto geladen: \(image.size)")
+
+                        // Cache leeren BEVOR neues Bild gesetzt wird
+                        await MainActor.run {
+                            GroupImageService.shared.clearCache(for: group.id)
+                        }
+
+                        await MainActor.run {
+                            imageToCrop = image
+                            // Kurze Verzögerung für State-Update
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+                                showImageCropper = true
+                            }
+                        }
                     }
                 }
             }
+            .fullScreenCover(isPresented: $showImageCropper, content: imageCropperView)
             .task {
                 await loadMembersAndResolveRole()
                 await checkGroupPictureStatus()
@@ -177,8 +206,30 @@ struct GroupSettingsView: View {
         }
     }
     
+    // MARK: - Image Cropper View
+
+    @ViewBuilder
+    private func imageCropperView() -> some View {
+        if let image = imageToCrop {
+            CircleImageCropper(
+                image: image,
+                onCrop: { [self] fullImage, croppedCircle in
+                    showImageCropper = false
+                    self.imageToCrop = nil
+                    Task {
+                        await uploadGroupImages(full: fullImage, circle: croppedCircle)
+                    }
+                },
+                onCancel: { [self] in
+                    showImageCropper = false
+                    self.imageToCrop = nil
+                }
+            )
+        }
+    }
+
     // MARK: - Sections
-    
+
     private var groupImageSection: some View {
         Section {
             HStack {
@@ -186,7 +237,7 @@ struct GroupSettingsView: View {
 
                 GroupAvatarView(
                     groupName: name,
-                    groupImage: groupImage,
+                    groupImage: groupImageCircle ?? groupImage,  // Circle-Ausschnitt für Avatar
                     hasGroupImage: hasGroupImage,
                     isUploadingImage: isUploadingGroupImage,
                     canEdit: canEditGroup,
@@ -393,44 +444,64 @@ struct GroupSettingsView: View {
     }
     
     private func loadGroupPicture() async {
-        if let image = await GroupImageService.shared.getCachedGroupImage(for: group.id) {
-            await MainActor.run {
-                groupImage = image
+        async let fullImage = GroupImageService.shared.getCachedGroupImage(for: group.id)
+        async let circleImage = GroupImageService.shared.getCachedGroupImageCircle(for: group.id)
+
+        let (full, circle) = await (fullImage, circleImage)
+
+        await MainActor.run {
+            if let full {
+                groupImage = full
+                groupImageCircle = circle ?? full  // Fallback zu full wenn kein Circle
                 hasGroupImage = true
             }
         }
     }
     
-    private func uploadGroupImage(_ imageData: Data) async {
-        guard let uiImage = UIImage(data: imageData) else {
-            await MainActor.run { errorMessage = "Bild konnte nicht verarbeitet werden" }
-            return
-        }
-        
+    private func uploadGroupImages(full: UIImage, circle: UIImage) async {
         await MainActor.run { isUploadingGroupImage = true }
-        
+
         do {
-            _ = try await GroupImageService.shared.uploadGroupPicture(uiImage, for: group.id)
+            // 1. ALTE Bilder ZUERST löschen (full + circle)
+            print("🗑️ Lösche alte Gruppenbilder...")
+            try? await GroupImageService.shared.deleteGroupPicture(for: group.id)
+            try? await GroupImageService.shared.deleteGroupPictureCircle(for: group.id)
+
+            // 2. Cache leeren
+            GroupImageService.shared.clearCache(for: group.id)
+
+            // 3. NEUE Bilder hochladen
+            print("📤 Lade neue Gruppenbilder hoch...")
+            _ = try await GroupImageService.shared.uploadGroupPicture(full, for: group.id)
+            _ = try await GroupImageService.shared.uploadGroupPictureCircle(circle, for: group.id)
+
             await MainActor.run {
-                groupImage = uiImage
+                // NEUE Bilder direkt setzen (NICHT aus Cache)
+                groupImage = full
+                groupImageCircle = circle
                 hasGroupImage = true
                 isUploadingGroupImage = false
             }
+
+            print("✅ Upload erfolgreich - Full: \(full.size), Circle: \(circle.size)")
         } catch {
             await MainActor.run {
                 isUploadingGroupImage = false
                 errorMessage = "Gruppenbild konnte nicht hochgeladen werden: \(error.localizedDescription)"
             }
+            print("❌ Upload fehlgeschlagen: \(error)")
         }
     }
     
     private func deleteGroupImage() async {
         await MainActor.run { isUploadingGroupImage = true }
-        
+
         do {
             try await GroupImageService.shared.deleteGroupPicture(for: group.id)
+            try await GroupImageService.shared.deleteGroupPictureCircle(for: group.id)
             await MainActor.run {
                 groupImage = nil
+                groupImageCircle = nil
                 hasGroupImage = false
                 isUploadingGroupImage = false
             }
