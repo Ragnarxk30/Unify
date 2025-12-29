@@ -195,8 +195,9 @@ private struct GroupRow: View {
     let unreadCount: Int
     let eventCount: Int
     let memberCount: Int
-    
+
     @State private var groupImage: UIImage?
+    @State private var showGroupImageViewer = false
     
     var memberCountText: String {
         memberCount == 1 ? "1 Mitglied" : "\(memberCount) Mitglieder"
@@ -206,32 +207,37 @@ private struct GroupRow: View {
         NavigationLink(destination: GroupChatScreen(group: group)) {
             HStack(spacing: 14) {
                 // Gruppen-Avatar mit Bild oder Initialen
-                Group {
-                    if let groupImage {
-                        Image(uiImage: groupImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 52, height: 52)
-                            .clipShape(Circle())
-                    } else {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
+                Button {
+                    showGroupImageViewer = true
+                } label: {
+                    Group {
+                        if let groupImage {
+                            Image(uiImage: groupImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
                                 .frame(width: 52, height: 52)
-                            
-                            Text(String(group.name.prefix(2)).uppercased())
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
+                                .clipShape(Circle())
+                        } else {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 52, height: 52)
+
+                                Text(String(group.name.prefix(2)).uppercased())
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                            }
                         }
                     }
                 }
-                
+                .buttonStyle(.plain)
+
                 // Gruppen-Info
                 VStack(alignment: .leading, spacing: 6) {
                     Text(group.name)
@@ -277,6 +283,16 @@ private struct GroupRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+        .fullScreenCover(isPresented: $showGroupImageViewer) {
+            GroupImageViewerSheet(
+                image: $groupImage,
+                groupName: .constant(group.name),
+                groupId: .constant(group.id),
+                onDismiss: {
+                    showGroupImageViewer = false
+                }
+            )
+        }
         .task {
             groupImage = await GroupImageService.shared.getCachedGroupImage(for: group.id)
         }

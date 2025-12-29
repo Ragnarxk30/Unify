@@ -34,13 +34,16 @@ struct GroupSettingsView: View {
     @State private var selectedUserName: String?
     @State private var showProfileImageViewer = false
     @State private var selectedUserId: UUID?
-    
+
     // Gruppenbild State
     @State private var groupImage: UIImage?
     @State private var hasGroupImage = false
     @State private var isUploadingGroupImage = false
     @State private var showGroupPhotoPicker = false
     @State private var groupPhotoPickerItem: PhotosPickerItem?
+
+    // Gruppenbild Viewer State
+    @State private var showGroupImageViewer = false
     
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
@@ -148,6 +151,16 @@ struct GroupSettingsView: View {
                     }
                 )
             }
+            .fullScreenCover(isPresented: $showGroupImageViewer) {
+                GroupImageViewerSheet(
+                    image: $groupImage,
+                    groupName: .constant(name),
+                    groupId: .constant(group.id),
+                    onDismiss: {
+                        showGroupImageViewer = false
+                    }
+                )
+            }
             .photosPicker(isPresented: $showGroupPhotoPicker, selection: $groupPhotoPickerItem, matching: .images)
             .onChange(of: groupPhotoPickerItem) { _, newItem in
                 guard let newItem else { return }
@@ -170,17 +183,18 @@ struct GroupSettingsView: View {
         Section {
             HStack {
                 Spacer()
-                
+
                 GroupAvatarView(
                     groupName: name,
                     groupImage: groupImage,
                     hasGroupImage: hasGroupImage,
                     isUploadingImage: isUploadingGroupImage,
                     canEdit: canEditGroup,
+                    onTap: { showGroupImageViewer = true },
                     onChangePhoto: { showGroupPhotoPicker = true },
                     onDeletePhoto: { Task { await deleteGroupImage() } }
                 )
-                
+
                 Spacer()
             }
             .listRowBackground(Color.clear)
@@ -553,38 +567,46 @@ private struct GroupAvatarView: View {
     let hasGroupImage: Bool
     let isUploadingImage: Bool
     let canEdit: Bool
+    let onTap: () -> Void
     let onChangePhoto: () -> Void
     let onDeletePhoto: () -> Void
-    
+
     var body: some View {
         VStack(spacing: 12) {
             if canEdit {
-                Menu {
-                    Button {
-                        onChangePhoto()
-                    } label: {
-                        Label("Gruppenbild ändern", systemImage: "photo")
+                avatarContent
+                    .onTapGesture {
+                        onTap()
                     }
-                    
-                    if hasGroupImage {
-                        Button(role: .destructive) {
-                            onDeletePhoto()
+                    .onLongPressGesture {
+                        // Long Press wird über contextMenu gehandhabt
+                    }
+                    .contextMenu {
+                        Button {
+                            onChangePhoto()
                         } label: {
-                            Label("Gruppenbild löschen", systemImage: "trash")
+                            Label("Gruppenbild ändern", systemImage: "photo")
+                        }
+
+                        if hasGroupImage {
+                            Button(role: .destructive) {
+                                onDeletePhoto()
+                            } label: {
+                                Label("Gruppenbild löschen", systemImage: "trash")
+                            }
                         }
                     }
-                } label: {
-                    avatarContent
-                }
             } else {
                 avatarContent
+                    .onTapGesture {
+                        onTap()
+                    }
             }
-            
-            if canEdit {
-                Text("Tippen zum Ändern")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+
+            Text(canEdit ? "Tippen zum Ansehen, Lange drücken zum Ändern" : "Tippen zum Ansehen")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .padding(.vertical, 8)
     }

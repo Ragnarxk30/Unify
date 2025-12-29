@@ -497,19 +497,9 @@ private struct ProfileAvatarView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                        Text(String(user.display_name.prefix(2)).uppercased())
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
+                    Image("Avatar_Default")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
                 }
             }
             .frame(width: 52, height: 52)
