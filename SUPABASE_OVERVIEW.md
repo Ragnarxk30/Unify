@@ -83,7 +83,7 @@ Event Y ändern? → Check: Bin ich Owner/Admin ODER Ersteller?
 
 ## 5. Storage (Dateispeicher) – Wo landen Bilder & Audio?
 
-Unify nutzt **2 Buckets** (Ordner im Cloud-Speicher):
+Unify nutzt **3 Buckets** (Ordner im Cloud-Speicher):
 
 ### Bucket 1: Profile Pictures
 - **Wer?** Jeder Nutzer hat max. 1 Profilbild
@@ -92,7 +92,15 @@ Unify nutzt **2 Buckets** (Ordner im Cloud-Speicher):
 - **Caching:** Bilder werden auf dem iPhone gecacht (schneller Zugriff)
 - **Cache-Busting:** Mit Timestamp verknüpft, damit neue Bilder sofort geladen werden
 
-### Bucket 2: Voice Messages
+### Bucket 2: Group Pictures
+- **Wer?** Jede Gruppe hat max. 1 Gruppenbild
+- **Format:** JPG/PNG (automatisch komprimiert)
+- **Naming:** Einfach die Gruppen-ID verwenden (z.B. `group-xyz.jpg`)
+- **Caching:** Bilder werden auf dem iPhone gecacht (schneller Zugriff)
+- **Cache-Busting:** Mit Timestamp verknüpft, damit neue Bilder sofort geladen werden
+- **Wer darf?** Nur Owner/Admin können das Gruppenbild ändern
+
+### Bucket 3: Voice Messages
 - **Wer?** Speicher für Sprachnachrichten
 - **Wie?** Wenn Alice eine Voice-Message sendet:
   1. Audio wird aufgenommen (lokal auf iPhone)

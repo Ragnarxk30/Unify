@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 // MARK: - GroupSettingsView
 struct GroupSettingsView: View {
@@ -34,6 +35,13 @@ struct GroupSettingsView: View {
     @State private var showProfileImageViewer = false
     @State private var selectedUserId: UUID?
     
+    // Gruppenbild State
+    @State private var groupImage: UIImage?
+    @State private var hasGroupImage = false
+    @State private var isUploadingGroupImage = false
+    @State private var showGroupPhotoPicker = false
+    @State private var groupPhotoPickerItem: PhotosPickerItem?
+    
     private let groupRepo = SupabaseGroupRepository()
     private let authRepo: AuthRepository = SupabaseAuthRepository()
     
@@ -55,6 +63,7 @@ struct GroupSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                groupImageSection
                 groupNameSection
                 membersSection
                 leaveGroupSection
@@ -139,13 +148,44 @@ struct GroupSettingsView: View {
                     }
                 )
             }
+            .photosPicker(isPresented: $showGroupPhotoPicker, selection: $groupPhotoPickerItem, matching: .images)
+            .onChange(of: groupPhotoPickerItem) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self) {
+                        await uploadGroupImage(data)
+                    }
+                }
+            }
             .task {
                 await loadMembersAndResolveRole()
+                await checkGroupPictureStatus()
             }
         }
     }
     
     // MARK: - Sections
+    
+    private var groupImageSection: some View {
+        Section {
+            HStack {
+                Spacer()
+                
+                GroupAvatarView(
+                    groupName: name,
+                    groupImage: groupImage,
+                    hasGroupImage: hasGroupImage,
+                    isUploadingImage: isUploadingGroupImage,
+                    canEdit: canEditGroup,
+                    onChangePhoto: { showGroupPhotoPicker = true },
+                    onDeletePhoto: { Task { await deleteGroupImage() } }
+                )
+                
+                Spacer()
+            }
+            .listRowBackground(Color.clear)
+        }
+    }
     
     private var groupNameSection: some View {
         Section("Gruppenname") {
@@ -326,6 +366,68 @@ struct GroupSettingsView: View {
         }
     }
     
+    // MARK: - Group Image Functions
+    
+    private func checkGroupPictureStatus() async {
+        do {
+            let exists = try await GroupImageService.shared.checkGroupPictureExists(for: group.id)
+            await MainActor.run { hasGroupImage = exists }
+            if exists { await loadGroupPicture() }
+        } catch {
+            print("❌ Check group picture error: \(error)")
+        }
+    }
+    
+    private func loadGroupPicture() async {
+        if let image = await GroupImageService.shared.getCachedGroupImage(for: group.id) {
+            await MainActor.run {
+                groupImage = image
+                hasGroupImage = true
+            }
+        }
+    }
+    
+    private func uploadGroupImage(_ imageData: Data) async {
+        guard let uiImage = UIImage(data: imageData) else {
+            await MainActor.run { errorMessage = "Bild konnte nicht verarbeitet werden" }
+            return
+        }
+        
+        await MainActor.run { isUploadingGroupImage = true }
+        
+        do {
+            _ = try await GroupImageService.shared.uploadGroupPicture(uiImage, for: group.id)
+            await MainActor.run {
+                groupImage = uiImage
+                hasGroupImage = true
+                isUploadingGroupImage = false
+            }
+        } catch {
+            await MainActor.run {
+                isUploadingGroupImage = false
+                errorMessage = "Gruppenbild konnte nicht hochgeladen werden: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func deleteGroupImage() async {
+        await MainActor.run { isUploadingGroupImage = true }
+        
+        do {
+            try await GroupImageService.shared.deleteGroupPicture(for: group.id)
+            await MainActor.run {
+                groupImage = nil
+                hasGroupImage = false
+                isUploadingGroupImage = false
+            }
+        } catch {
+            await MainActor.run {
+                isUploadingGroupImage = false
+                errorMessage = "Gruppenbild konnte nicht gelöscht werden: \(error.localizedDescription)"
+            }
+        }
+    }
+    
     // MARK: - Actions
     
     private func removeMember(_ member: GroupMember) async {
@@ -443,6 +545,83 @@ private enum GroupSettingsError {
 }
 
 // MARK: - Reusable Components
+
+// MARK: - Group Avatar View
+private struct GroupAvatarView: View {
+    let groupName: String
+    let groupImage: UIImage?
+    let hasGroupImage: Bool
+    let isUploadingImage: Bool
+    let canEdit: Bool
+    let onChangePhoto: () -> Void
+    let onDeletePhoto: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            if canEdit {
+                Menu {
+                    Button {
+                        onChangePhoto()
+                    } label: {
+                        Label("Gruppenbild ändern", systemImage: "photo")
+                    }
+                    
+                    if hasGroupImage {
+                        Button(role: .destructive) {
+                            onDeletePhoto()
+                        } label: {
+                            Label("Gruppenbild löschen", systemImage: "trash")
+                        }
+                    }
+                } label: {
+                    avatarContent
+                }
+            } else {
+                avatarContent
+            }
+            
+            if canEdit {
+                Text("Tippen zum Ändern")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    private var avatarContent: some View {
+        Group {
+            if isUploadingImage {
+                ProgressView()
+                    .frame(width: 80, height: 80)
+            } else if let groupImage {
+                Image(uiImage: groupImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    Text(String(groupName.prefix(2)).uppercased())
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: 80, height: 80)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
 
 // ⭐ NUR onTap PARAMETER NEU ⭐
 private struct MemberAvatarView: View {

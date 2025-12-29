@@ -20,7 +20,7 @@
 /* Begin PBXFileReference section */
 		5BD0877C2EB8A4FA00AE44FC /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 		5BD0878D2EB8AF5600AE44FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		692C3A6B2EC39E87005D67A8 /* Unify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unify.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		692C3A6B2EC39E87005D67A8 /* Unify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Unify.app; path = "/Users/innocent/Unify/build/Debug-iphoneos/Unify.app"; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -85,16 +85,7 @@
 				5BD087682EB8A45500AE44FC /* Screens */,
 				5BD087732EB8A45800AE44FC /* Views */,
 				5BD0877C2EB8A4FA00AE44FC /* .gitignore */,
-				692C3A6B2EC39E87005D67A8 /* Unify.app */,
-				6983A7312EFDF71D0045D0B0 /* Frameworks */,
 			);
-			sourceTree = "<group>";
-		};
-		6983A7312EFDF71D0045D0B0 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
