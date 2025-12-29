@@ -88,7 +88,15 @@ channel.postgresChange(InsertAction.self, table: "message", ...)
 - **Cache-Busting:** Timestamp-Parameter in Public URLs
 - **Upsert:** Alte Dateien werden vor Upload gelöscht
 
-### Bucket 2: `voice-messages`
+### Bucket 2: `group-pictures`
+**Service:** `GroupImageService.swift`
+- **Upload:** JPG/PNG mit Kompression, Naming: `{groupId}` (lowercase UUID)
+- **Caching:** NSCache (50 Items, 25MB Limit) + Download-Deduplication
+- **Cache-Busting:** Timestamp-Parameter in Public URLs
+- **Upsert:** Alte Dateien werden vor Upload gelöscht
+- **Permissions:** Nur Owner/Admin können Gruppenbilder ändern (UI-seitig)
+
+### Bucket 3: `voice-messages`
 **Service:** `ChatEndpoints.swift:173-205`
 - **Upload:** Beim Erstellen von Voice-Messages (`message_type = "voice"`)
 - **Cleanup:** Auto-Löschen via `storage.remove()` beim Message-Delete
@@ -186,7 +194,8 @@ struct SupabaseAuthRepository: AuthRepository { ... }
 
 ### Service Layer
 - `AuthService` (SessionStore + Auth-Flows)
-- `ProfileImageService` (Storage + Caching)
+- `ProfileImageService` (Storage + Caching für Profilbilder)
+- `GroupImageService` (Storage + Caching für Gruppenbilder)
 - `UnreadMessagesService` (Realtime + Counter)
 
 ### Data Models
@@ -216,7 +225,7 @@ enum GroupError: Error {
 - ✓ **PostgreSQL** (5 Tabellen mit Foreign Keys + RLS)
 - ✓ **Auth** (Email/Password + Session Management)
 - ✓ **Realtime** (2 Subscriptions pro Gruppe: Chat + Unread)
-- ✓ **Storage** (2 Buckets: Profile + Voice Messages)
+- ✓ **Storage** (3 Buckets: Profile Pictures + Group Pictures + Voice Messages)
 - ✓ **RPC Functions** (3 Custom Functions für Auth-Ops)
 
 **Architektur:** Repository Pattern + Service Layer + Actor-basiertes Caching

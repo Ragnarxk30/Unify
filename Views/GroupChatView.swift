@@ -76,7 +76,6 @@ struct GroupChatView: View {
                 speechRecognitionStatusView
             }
         }
-        .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { handleOnAppear() }
         .onDisappear { handleOnDisappear() }
@@ -609,6 +608,15 @@ struct GroupChatView: View {
                 onMessage: { newMessage in
                     if !messages.contains(where: { $0.id == newMessage.id }) {
                         messages.append(newMessage)
+                    }
+                },
+                onDelete: { deletedMessageId in
+                    messages.removeAll { $0.id == deletedMessageId }
+                    selectedMessages.remove(deletedMessageId)
+                },
+                onUpdate: { updatedMessage in
+                    if let index = messages.firstIndex(where: { $0.id == updatedMessage.id }) {
+                        messages[index] = updatedMessage
                     }
                 }
             )

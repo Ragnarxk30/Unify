@@ -17,6 +17,11 @@ struct CreateEventView: View {
     @State private var details = ""
     @State private var start  = Date().addingTimeInterval(3600)
     @State private var end    = Date().addingTimeInterval(7200)
+    
+    // UI State
+    @State private var isCreating = false
+    @State private var showDetails = false
+    @FocusState private var isTitleFocused: Bool
 
     // Custom init, damit wir initiale Gruppen übergeben können
     init(allGroups: [AppGroup], onCreated: @escaping () -> Void) {
@@ -27,78 +32,158 @@ struct CreateEventView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Neuen Termin hinzufügen")
-                            .font(.headline)
-
-                        // 1) Ziel-Auswahl (Ich / Gruppe)
+                VStack(spacing: 20) {
+                    // Icon
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.6), Color.blue.opacity(0.4)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 70, height: 70)
+                        
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.top, 4)
+                    
+                    // Ziel-Auswahl
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Termin für")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        
                         Picker("Ziel", selection: $targetScope) {
-                            ForEach(EventTargetScope.allCases) { scope in
-                                Text(scope.rawValue).tag(scope)
-                            }
+                            Text("Mich").tag(EventTargetScope.personal)
+                            Text("Gruppe").tag(EventTargetScope.group)
                         }
                         .pickerStyle(.segmented)
+                    }
+                    
+                    // Gruppen-Picker
+                    if targetScope == .group {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Gruppe auswählen")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
 
-                        // 2) Gruppen-Picker (nur wenn Gruppe gewählt)
-                        if targetScope == .group {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Gruppe")
-                                    .font(.subheadline)
-
-                                Picker("Gruppe", selection: $selectedGroupId) {
-                                    Text(groups.isEmpty ? "Lade Gruppen..." : "Bitte wählen")
-                                        .tag(nil as UUID?)
-                                    ForEach(groups) { group in
-                                        Text(group.name)
-                                            .tag(group.id as UUID?)
-                                    }
+                            Picker("Gruppe", selection: $selectedGroupId) {
+                                Text("Gruppe auswählen...")
+                                    .tag(nil as UUID?)
+                                ForEach(groups) { group in
+                                    Text(group.name)
+                                        .tag(group.id as UUID?)
                                 }
-                                .pickerStyle(.menu)
+                            }
+                            .pickerStyle(.menu)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    
+                    // Titel
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Titel")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        
+                        TextField("Was steht an?", text: $title)
+                            .font(.body)
+                            .padding(14)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .focused($isTitleFocused)
+                    }
+                    
+                    // Zeit
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Zeitraum")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        
+                        VStack(spacing: 0) {
+                            DatePicker("Start", selection: $start)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                            
+                            Divider()
+                                .padding(.leading, 14)
+                            
+                            DatePicker("Ende", selection: $end)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                        }
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    
+                    // Details (optional, ausklappbar)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showDetails.toggle()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Details hinzufügen")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                
+                                Spacer()
+                                
+                                Image(systemName: showDetails ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
                             }
                         }
-
-                        // 3) Titel + Details + Zeiten
-                        TextField("Titel", text: $title)
-                            .textFieldStyle(.roundedBorder)
-
-                        Text("Details (optional)")
-                            .font(.subheadline)
-                        TextEditor(text: $details)
-                            .frame(minHeight: 80)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.3))
-                            )
-
-                        DatePicker("Start", selection: $start)
-                        DatePicker("Ende", selection: $end)
-
-                        // 4) Speichern-Button
-                        Button {
-                            Task { await save() }
-                        } label: {
-                            Label("Termin hinzufügen", systemImage: "plus")
+                        
+                        if showDetails {
+                            TextEditor(text: $details)
+                                .font(.body)
+                                .frame(minHeight: 80)
+                                .padding(10)
+                                .background(Color(.secondarySystemGroupedBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!canSave)
                     }
-                    .padding()
-                    .background(
-                        Color.cardBackground,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color.cardStroke)
-                    )
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .padding(20)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Neuer Termin")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if isCreating {
+                            ProgressView()
+                                .scaleEffect(0.85)
+                        } else {
+                            Text("Speichern")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(!canSave || isCreating)
+                }
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: targetScope)
         }
         .onChange(of: start) { oldStart, newStart in
             let duration = end.timeIntervalSince(oldStart)
@@ -109,9 +194,20 @@ struct CreateEventView: View {
                 await loadGroups()
             }
         }
+        .onAppear {
+            isTitleFocused = true
+        }
     }
 
     // MARK: - Helper
+    
+    private var selectedGroupName: String {
+        if let id = selectedGroupId,
+           let group = groups.first(where: { $0.id == id }) {
+            return group.name
+        }
+        return "Gruppe auswählen..."
+    }
 
     private var canSave: Bool {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -143,6 +239,8 @@ struct CreateEventView: View {
         let trimmedTitle   = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
+        
+        isCreating = true
 
         do {
             let repo = SupabaseEventRepository()
@@ -168,10 +266,14 @@ struct CreateEventView: View {
             }
 
             await MainActor.run {
+                isCreating = false
                 onCreated()
                 dismiss()
             }
         } catch {
+            await MainActor.run {
+                isCreating = false
+            }
             print("❌ Fehler beim Erstellen des Events:", error)
         }
     }

@@ -8,6 +8,8 @@ struct GroupsView: View {
     @State private var isLoading = false
     @State private var isRefreshing = false
     @State private var errorMessage: String?
+    @State private var memberCounts: [UUID: Int] = [:]
+    @State private var eventCounts: [UUID: Int] = [:]
     
     @StateObject private var unreadService = UnreadMessagesService.shared
     
@@ -101,16 +103,18 @@ struct GroupsView: View {
     private var groupsListView: some View {
         ZStack(alignment: .top) {
             ScrollView {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: 12) {
                     ForEach(groups) { group in
                         GroupRow(
                             group: group,
-                            unreadCount: unreadService.unreadCounts[group.id] ?? 0
+                            unreadCount: unreadService.unreadCounts[group.id] ?? 0,
+                            eventCount: eventCounts[group.id] ?? 0,
+                            memberCount: memberCounts[group.id] ?? 0
                         )
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, isRefreshing ? 32 : 16)
+                .padding(.horizontal, 16)
+                .padding(.top, isRefreshing ? 32 : 12)
             }
             
             if isRefreshing {
@@ -134,6 +138,8 @@ struct GroupsView: View {
         do {
             groups = try await groupRepo.fetchGroups()
             await refreshUnreadCounts()
+            await loadMemberCounts()
+            await loadEventCounts()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -160,69 +166,170 @@ struct GroupsView: View {
         
         isRefreshing = false
     }
+    
+    @MainActor
+    private func loadMemberCounts() async {
+        for group in groups {
+            do {
+                let count = try await groupRepo.fetchMemberCount(groupId: group.id)
+                memberCounts[group.id] = count
+            } catch {
+                print("⚠️ Fehler beim Laden der Mitgliederzahl für Gruppe \(group.id): \(error)")
+                memberCounts[group.id] = 0
+            }
+        }
+    }
+    
+    @MainActor
+    private func loadEventCounts() async {
+        for group in groups {
+            let count = await EventCountService.countEventsForGroup(group.id)
+            eventCounts[group.id] = count
+        }
+    }
 }
 
 // MARK: - Group Row
 private struct GroupRow: View {
     let group: AppGroup
     let unreadCount: Int
+    let eventCount: Int
+    let memberCount: Int
+
+    @State private var groupImage: UIImage?
+    @State private var showGroupImageViewer = false
+    
+    var memberCountText: String {
+        memberCount == 1 ? "1 Mitglied" : "\(memberCount) Mitglieder"
+    }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            VStack(alignment: .leading, spacing: 6) {
-                Text(group.name)
-                    .font(.title3)
-                    .bold()
-                
-                Text("Owner: \(group.owner.display_name)")
-                    .font(.subheadline)
+        NavigationLink(destination: GroupChatScreen(group: group)) {
+            HStack(spacing: 14) {
+                // Gruppen-Avatar mit Bild oder Initialen
+                Button {
+                    showGroupImageViewer = true
+                } label: {
+                    Group {
+                        if let groupImage {
+                            Image(uiImage: groupImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 52, height: 52)
+                                .clipShape(Circle())
+                        } else {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color.blue.opacity(0.7), Color.blue.opacity(0.5)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 52, height: 52)
+
+                                Text(String(group.name.prefix(2)).uppercased())
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Gruppen-Info
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(group.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.2")
+                            .font(.caption2)
+                        Text(memberCountText)
+                            .font(.caption)
+                    }
                     .foregroundStyle(.secondary)
-            }
-            
-            // Action Buttons
-            HStack(spacing: 12) {
-                NavigationLink {
-                    GroupCalendarScreen(groupID: group.id)
-                } label: {
-                    Label("Kalender", systemImage: "calendar")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
                 
-                // Chat mit Badge
-                NavigationLink {
-                    GroupChatScreen(group: group)
-                } label: {
-                    Label("Chat", systemImage: "text.bubble")
-                        .frame(maxWidth: .infinity)
+                Spacer()
+                
+                // Badges für Termine und Chat
+                HStack(spacing: 12) {
+                    // Kalender Badge
+                    StatBadge(
+                        icon: "calendar",
+                        count: eventCount,
+                        color: .orange
+                    )
+                    
+                    // Chat Badge
+                    StatBadge(
+                        icon: "bubble.left.and.bubble.right.fill",
+                        count: unreadCount,
+                        color: .green
+                    )
                 }
-                .buttonStyle(.bordered)
-                .overlay(alignment: .topTrailing) {
-                    if unreadCount > 0 {
-                        UnreadBadge(count: unreadCount)
-                            .offset(x: 4, y: -4)
+                
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .fullScreenCover(isPresented: $showGroupImageViewer) {
+            GroupImageViewerSheet(
+                image: $groupImage,
+                groupName: .constant(group.name),
+                groupId: .constant(group.id),
+                onDismiss: {
+                    showGroupImageViewer = false
+                }
+            )
+        }
+        .task {
+            groupImage = await GroupImageService.shared.getCachedGroupImage(for: group.id)
+        }
+    }
+}
+
+// MARK: - Stat Badge
+private struct StatBadge: View {
+    let icon: String
+    let count: Int
+    let color: Color
+    var showZero: Bool = true
+    
+    var body: some View {
+        if showZero || count > 0 {
+            VStack(spacing: 2) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: icon)
+                        .font(.system(size: 16))
+                        .foregroundStyle(count > 0 ? color : .secondary)
+                        .frame(width: 28, height: 24)
+                    
+                    if count > 0 {
+                        Text(count > 99 ? "99+" : "\(count)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                Capsule()
+                                    .fill(color)
+                            )
+                            .offset(x: 6, y: -4)
                     }
                 }
             }
         }
-        .cardStyle()
-    }
-}
-
-// MARK: - Unread Badge
-private struct UnreadBadge: View {
-    let count: Int
-    
-    var body: some View {
-        Text("\(count)")
-            .font(.caption2)
-            .bold()
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.red)
-            .clipShape(Capsule())
     }
 }
 
@@ -237,6 +344,7 @@ private struct CreateGroupSheet: View {
     @State private var isCreating = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @FocusState private var isNameFocused: Bool
     
     private let groupRepo: GroupRepository = SupabaseGroupRepository()
     
@@ -245,82 +353,144 @@ private struct CreateGroupSheet: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Header
-            HStack {
-                Text("Neue Gruppe erstellen")
-                    .font(.title2)
-                    .bold()
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Gruppen-Icon
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.6), Color.blue.opacity(0.4)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 80, height: 80)
+                        
+                        if name.isEmpty {
+                            Image(systemName: "person.3.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.white)
+                        } else {
+                            Text(String(name.prefix(2)).uppercased())
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .padding(.top, 8)
+                    
+                    // Name Input
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Gruppenname")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        
+                        TextField("z.B. Familie, Arbeit, Freunde", text: $name)
+                            .font(.body)
+                            .padding(14)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .focused($isNameFocused)
+                    }
+                    
+                    // Einladungen
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Mitglieder einladen")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            
+                            Spacer()
+                            
+                            Text("Optional")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        
+                        VStack(spacing: 10) {
+                            ForEach($invites) { $invite in
+                                InviteRowView(invite: $invite)
+                            }
+                        }
+                        
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                invites.append(InviteRow())
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundStyle(.blue)
+                                Text("Weitere Person einladen")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.blue)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+                    
+                    // Fehler/Erfolg Nachrichten
+                    if let errorMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(.red)
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    
+                    if let successMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text(successMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.green)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.green.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
                 }
+                .padding(20)
             }
-            
-            // Name Input
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Gruppenname")
-                    .font(.headline)
-                
-                TextField("z.B. Familiengruppe", text: $name)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            // Invites
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Benutzer einladen")
-                    .font(.headline)
-                
-                ForEach($invites) { $invite in
-                    InviteRowView(invite: $invite)
-                }
-                
-                Button {
-                    invites.append(InviteRow())
-                } label: {
-                    Label("Weitere Person", systemImage: "plus")
-                        .font(.subheadline)
-                }
-                .buttonStyle(.borderless)
-            }
-            
-            // Messages
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundColor(.red)
-            }
-            
-            if let successMessage {
-                Text(successMessage)
-                    .font(.footnote)
-                    .foregroundColor(.green)
-            }
-            
-            Spacer()
-            
-            // Actions
-            HStack {
-                Button("Abbrechen") { dismiss() }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Neue Gruppe")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
                     .disabled(isCreating)
-                
-                Spacer()
-                
-                if isCreating {
-                    ProgressView()
-                        .padding(.trailing, 8)
                 }
                 
-                Button("Erstellen") {
-                    Task { await createGroup() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await createGroup() }
+                    } label: {
+                        if isCreating {
+                            ProgressView()
+                                .scaleEffect(0.85)
+                        } else {
+                            Text("Erstellen")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(!canCreate)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canCreate)
             }
         }
-        .padding(20)
+        .onAppear {
+            isNameFocused = true
+        }
     }
     
     private func createGroup() async {
@@ -336,13 +506,13 @@ private struct CreateGroupSheet: View {
             try await groupRepo.create(name: name, invitedUsers: validInvites)
             
             await MainActor.run {
-                successMessage = "✅ Gruppe '\(name)' wurde erstellt!"
+                successMessage = "Gruppe wurde erstellt!"
                 isCreating = false
             }
             
             await onGroupCreated()
             
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(nanoseconds: 400_000_000)
             dismiss()
             
         } catch {
@@ -350,12 +520,12 @@ private struct CreateGroupSheet: View {
                 if let groupError = error as? GroupError {
                     switch groupError {
                     case .unknownAppleIds(let emails):
-                        errorMessage = "❌ E-Mails nicht gefunden: \(emails.joined(separator: ", "))"
+                        errorMessage = "E-Mails nicht gefunden: \(emails.joined(separator: ", "))"
                     default:
-                        errorMessage = "❌ \(groupError.localizedDescription)"
+                        errorMessage = groupError.localizedDescription
                     }
                 } else {
-                    errorMessage = "❌ \(error.localizedDescription)"
+                    errorMessage = error.localizedDescription
                 }
                 isCreating = false
             }
@@ -374,19 +544,37 @@ private struct InviteRowView: View {
     @Binding var invite: InviteRow
     
     var body: some View {
-        HStack(spacing: 8) {
-            TextField("E-Mail", text: $invite.email)
-                .textFieldStyle(.roundedBorder)
+        HStack(spacing: 10) {
+            TextField("E-Mail-Adresse", text: $invite.email)
+                .font(.body)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .padding(12)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             
-            Picker("Rolle", selection: $invite.role) {
-                Text("Mitglied").tag(role.user)
-                Text("Admin").tag(role.admin)
+            Menu {
+                Button {
+                    invite.role = .user
+                } label: {
+                    Label("Mitglied", systemImage: invite.role == .user ? "checkmark" : "")
+                }
+                
+                Button {
+                    invite.role = .admin
+                } label: {
+                    Label("Admin", systemImage: invite.role == .admin ? "checkmark" : "")
+                }
+            } label: {
+                Text(invite.role == .admin ? "Admin" : "Mitglied")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .pickerStyle(.menu)
-            .fixedSize()
         }
     }
 }

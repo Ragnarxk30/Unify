@@ -4,10 +4,10 @@ import UIKit
 import Combine
 
 @MainActor
-final class ProfileImageService: ObservableObject {
+final class GroupImageService: ObservableObject {
     
     // MARK: - Singleton für globalen Cache
-    static let shared = ProfileImageService()
+    static let shared = GroupImageService()
     
     // MARK: - Published Properties
     @Published var isLoading = false
@@ -19,79 +19,77 @@ final class ProfileImageService: ObservableObject {
     
     // MARK: - Private Properties
     private let storage = supabase.storage
-    private let bucketName = "profile-pictures"
-    private let auth: AuthRepository
+    private let bucketName = "group-pictures"
     
-    init(auth: AuthRepository = SupabaseAuthRepository()) {
-        self.auth = auth
+    init() {
         // Cache konfigurieren
-        imageCache.countLimit = 100 // Max 100 Bilder im Cache
-        imageCache.totalCostLimit = 50 * 1024 * 1024 // 50MB Speicherlimit
+        imageCache.countLimit = 50 // Max 50 Gruppenbilder im Cache
+        imageCache.totalCostLimit = 25 * 1024 * 1024 // 25MB Speicherlimit
     }
     
     // MARK: - Cached Image Loading
-    // MARK: - Cached Image Loading
-    func getCachedProfileImage(for userId: UUID) async -> UIImage? {
+    func getCachedGroupImage(for groupId: UUID) async -> UIImage? {
         // Prüfe Cache zuerst
-        let cacheKey = userId.uuidString.lowercased() as NSString
+        let cacheKey = groupId.uuidString.lowercased() as NSString
         if let cachedImage = imageCache.object(forKey: cacheKey) {
-            print("✅ Profilbild aus Cache geladen für User: \(userId)")
+            print("✅ Gruppenbild aus Cache geladen für Gruppe: \(groupId)")
             return cachedImage
         }
         
         // Vermeide doppelte Downloads - prüfe ob bereits lädt
-        if let existingTask = loadingTasks[userId] {
-            print("⏳ Warte auf bereits laufenden Download für User: \(userId)")
+        if let existingTask = loadingTasks[groupId] {
+            print("⏳ Warte auf bereits laufenden Download für Gruppe: \(groupId)")
             return try? await existingTask.value
         }
         
         // Starte Download-Task mit @MainActor
-        print("📥 Starte neuen Download für User: \(userId)")
+        print("📥 Starte neuen Download für Gruppe: \(groupId)")
         let task = Task<UIImage?, Error> { @MainActor in
             defer {
-                loadingTasks.removeValue(forKey: userId)
-                print("🏁 Download-Task beendet für User: \(userId)")
+                loadingTasks.removeValue(forKey: groupId)
+                print("🏁 Download-Task beendet für Gruppe: \(groupId)")
             }
             
             do {
-                let imageData = try await downloadProfilePicture(for: userId)
+                let imageData = try await downloadGroupPicture(for: groupId)
                 guard let image = UIImage(data: imageData) else {
-                    print("❌ Konnte Bilddaten nicht in UIImage konvertieren für User: \(userId)")
+                    print("❌ Konnte Bilddaten nicht in UIImage konvertieren für Gruppe: \(groupId)")
                     return nil
                 }
                 
                 // In Cache speichern
                 imageCache.setObject(image, forKey: cacheKey)
-                print("✅ Profilbild heruntergeladen und gecached für User: \(userId)")
+                print("✅ Gruppenbild heruntergeladen und gecached für Gruppe: \(groupId)")
                 return image
                 
             } catch {
-                print("❌ Fehler beim Laden des Profilbilds für \(userId): \(error)")
+                print("❌ Fehler beim Laden des Gruppenbilds für \(groupId): \(error)")
                 return nil
             }
         }
         
-        loadingTasks[userId] = task
+        loadingTasks[groupId] = task
         let result = try? await task.value
-        print("📦 Returning result: \(result != nil) für User: \(userId)")
+        print("📦 Returning result: \(result != nil) für Gruppe: \(groupId)")
         return result
     }
+    
     // MARK: - Cache Management
     func clearCache() {
         imageCache.removeAllObjects()
         loadingTasks.removeAll()
-        print("🗑️ Profilbild-Cache komplett geleert")
+        print("🗑️ Gruppenbild-Cache komplett geleert")
     }
     
-    func clearCache(for userId: UUID) {
-        let cacheKey = userId.uuidString.lowercased() as NSString
+    func clearCache(for groupId: UUID) {
+        let cacheKey = groupId.uuidString.lowercased() as NSString
         imageCache.removeObject(forKey: cacheKey)
-        loadingTasks.removeValue(forKey: userId)
-        print("🗑️ Profilbild-Cache geleert für User: \(userId)")
+        loadingTasks.removeValue(forKey: groupId)
+        print("🗑️ Gruppenbild-Cache geleert für Gruppe: \(groupId)")
     }
     
-    // MARK: - Upload/Replace Profilbild
-    func uploadProfilePicture(_ image: UIImage, fileExtension: String = "jpg") async throws -> String {
+    // MARK: - Upload/Replace Gruppenbild
+    func uploadGroupPicture(_ image: UIImage, for groupId: UUID, fileExtension: String = "jpg") async throws -> String {
         await MainActor.run {
             isLoading = true
             errorMessage = nil
@@ -104,7 +102,6 @@ final class ProfileImageService: ObservableObject {
         }
         
         do {
-            let userId = try await auth.currentUserId()
             let format = fileExtension.lowercased()
             let contentType = format == "png" ? "image/png" : "image/jpeg"
             
@@ -112,28 +109,28 @@ final class ProfileImageService: ObservableObject {
                 throw NSError(domain: "ImageError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Bild konnte nicht konvertiert werden"])
             }
             
-            let fileName = userId.uuidString.lowercased()
+            let fileName = groupId.uuidString.lowercased()
             
-            print("📤 Upload Profilbild: \(fileName) als \(contentType)")
+            print("📤 Upload Gruppenbild: \(fileName) als \(contentType)")
             
-            // Prüfen ob bereits ein Profilbild existiert
+            // Prüfen ob bereits ein Gruppenbild existiert
             let existingFiles = try await storage
                 .from(bucketName)
                 .list()
             
-            let userFiles = existingFiles.filter {
+            let groupFiles = existingFiles.filter {
                 $0.name.lowercased() == fileName.lowercased()
             }
             
             // Falls existiert, löschen
-            if !userFiles.isEmpty {
-                print("🗑️ Lösche vorhandenes Profilbild: \(userFiles.map { $0.name })")
+            if !groupFiles.isEmpty {
+                print("🗑️ Lösche vorhandenes Gruppenbild: \(groupFiles.map { $0.name })")
                 try await storage
                     .from(bucketName)
                     .remove(paths: [fileName])
                 
                 // Cache ebenfalls löschen
-                clearCache(for: userId)
+                clearCache(for: groupId)
             }
             
             // Neues Bild hochladen
@@ -159,7 +156,7 @@ final class ProfileImageService: ObservableObject {
             let timestamp = Int(Date().timeIntervalSince1970)
             let cacheBustedURL = "\(publicURL.absoluteString)?t=\(timestamp)"
             
-            print("✅ Profilbild erfolgreich hochgeladen und gecached: \(cacheBustedURL)")
+            print("✅ Gruppenbild erfolgreich hochgeladen und gecached: \(cacheBustedURL)")
             
             return cacheBustedURL
             
@@ -167,13 +164,13 @@ final class ProfileImageService: ObservableObject {
             await MainActor.run {
                 errorMessage = "Upload fehlgeschlagen: \(error.localizedDescription)"
             }
-            print("❌ Profilbild Upload Error: \(error)")
+            print("❌ Gruppenbild Upload Error: \(error)")
             throw error
         }
     }
     
-    // MARK: - Download Profile Picture (für aktuellen User - SettingsView)
-    func downloadProfilePicture() async throws -> Data {
+    // MARK: - Download Group Picture
+    func downloadGroupPicture(for groupId: UUID) async throws -> Data {
         await MainActor.run {
             isLoading = true
             errorMessage = nil
@@ -186,16 +183,15 @@ final class ProfileImageService: ObservableObject {
         }
         
         do {
-            let userId = try await auth.currentUserId()
-            let fileName = userId.uuidString.lowercased()
+            let fileName = groupId.uuidString.lowercased()
             
-            print("📥 Download Profilbild: \(fileName)")
+            print("📥 Download Gruppenbild für Gruppe \(groupId): \(fileName)")
             
             let data = try await storage
                 .from(bucketName)
                 .download(path: fileName)
             
-            print("✅ Profilbild erfolgreich geladen (\(data.count) bytes)")
+            print("✅ Gruppenbild für Gruppe \(groupId) erfolgreich geladen (\(data.count) bytes)")
             
             return data
             
@@ -203,48 +199,13 @@ final class ProfileImageService: ObservableObject {
             await MainActor.run {
                 errorMessage = "Download fehlgeschlagen: \(error.localizedDescription)"
             }
-            print("❌ Profilbild Download Error: \(error)")
-            throw error
-        }
-    }
-
-    // MARK: - Download Profile Picture for ANY user (für Chats)
-    func downloadProfilePicture(for userId: UUID) async throws -> Data {
-        await MainActor.run {
-            isLoading = true
-            errorMessage = nil
-        }
-        
-        defer {
-            Task { @MainActor in
-                isLoading = false
-            }
-        }
-        
-        do {
-            let fileName = userId.uuidString.lowercased()
-            
-            print("📥 Download Profilbild für User \(userId): \(fileName)")
-            
-            let data = try await storage
-                .from(bucketName)
-                .download(path: fileName)
-            
-            print("✅ Profilbild für User \(userId) erfolgreich geladen (\(data.count) bytes)")
-            
-            return data
-            
-        } catch {
-            await MainActor.run {
-                errorMessage = "Download fehlgeschlagen: \(error.localizedDescription)"
-            }
-            print("❌ Profilbild Download für User \(userId) Error: \(error)")
+            print("❌ Gruppenbild Download für Gruppe \(groupId) Error: \(error)")
             throw error
         }
     }
     
-    // MARK: - Delete Profilbild (exakter Name)
-    func deleteProfilePicture() async throws {
+    // MARK: - Delete Gruppenbild
+    func deleteGroupPicture(for groupId: UUID) async throws {
         await MainActor.run {
             isLoading = true
             errorMessage = nil
@@ -257,28 +218,30 @@ final class ProfileImageService: ObservableObject {
         }
         
         do {
-            let userId = try await auth.currentUserId()
-            let fileName = userId.uuidString.lowercased() // 👈 Exakt der User-ID
+            let fileName = groupId.uuidString.lowercased()
             
-            print("🗑️ Lösche Profilbild: \(fileName)")
+            print("🗑️ Lösche Gruppenbild: \(fileName)")
             
             try await storage
                 .from(bucketName)
                 .remove(paths: [fileName])
             
-            print("✅ Profilbild erfolgreich gelöscht")
+            // Cache löschen
+            clearCache(for: groupId)
+            
+            print("✅ Gruppenbild erfolgreich gelöscht")
             
         } catch {
             await MainActor.run {
                 errorMessage = "Löschen fehlgeschlagen: \(error.localizedDescription)"
             }
-            print("❌ Profilbild Delete Error: \(error)")
+            print("❌ Gruppenbild Delete Error: \(error)")
             throw error
         }
     }
     
-    // MARK: - Check if Profile Picture exists (exakter Name)
-    func checkProfilePictureExists() async throws -> Bool {
+    // MARK: - Check if Group Picture exists
+    func checkGroupPictureExists(for groupId: UUID) async throws -> Bool {
         await MainActor.run {
             isLoading = true
             errorMessage = nil
@@ -291,33 +254,31 @@ final class ProfileImageService: ObservableObject {
         }
         
         do {
-            let userId = try await auth.currentUserId()
-            let fileName = userId.uuidString.lowercased() // 👈 Exakt der User-ID
+            let fileName = groupId.uuidString.lowercased()
             
             let existingFiles = try await storage
                 .from(bucketName)
                 .list()
             
-            let userFiles = existingFiles.filter {
+            let groupFiles = existingFiles.filter {
                 $0.name.lowercased() == fileName.lowercased()
             }
             
-            return !userFiles.isEmpty
+            return !groupFiles.isEmpty
             
         } catch {
             await MainActor.run {
                 errorMessage = "Check fehlgeschlagen: \(error.localizedDescription)"
             }
-            print("❌ Check Profile Picture Error: \(error)")
+            print("❌ Check Group Picture Error: \(error)")
             return false
         }
     }
     
-    // MARK: - Get Profile Picture URL
-    func getProfilePictureURL() async -> String {
+    // MARK: - Get Group Picture URL
+    func getGroupPictureURL(for groupId: UUID) -> String {
         do {
-            let userId = try await auth.currentUserId()
-            let fileName = userId.uuidString
+            let fileName = groupId.uuidString.lowercased()
             
             let publicURL = try storage
                 .from(bucketName)
@@ -326,7 +287,7 @@ final class ProfileImageService: ObservableObject {
             return publicURL.absoluteString
             
         } catch {
-            print("⚠️ Konnte Profilbild URL nicht generieren: \(error)")
+            print("⚠️ Konnte Gruppenbild URL nicht generieren: \(error)")
             return ""
         }
     }

@@ -41,7 +41,7 @@ struct CreatePersonalEventView: View {
                             Label("Termin hinzufügen", systemImage: "plus")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || start < Date())
                     }
                     .padding()
                     .background(

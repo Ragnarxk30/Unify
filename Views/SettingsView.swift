@@ -5,47 +5,51 @@ import PhotosUI
 // MARK: - SettingsView
 struct SettingsView: View {
     @EnvironmentObject var session: SessionStore
-    
+    @Environment(\.scenePhase) var scenePhase
+
     @AppStorage("appAppearance") private var appAppearance: String = "system"
     @State private var alertMessage: String?
-    
+
     // Profilbild State
     @State private var hasProfileImage = false
     @State private var profileImage: UIImage?
-    
+
     // Editing state
     @State private var isEditingName = false
     @State private var editedDisplayName: String = ""
     @State private var isSavingName = false
-    
+
     // Email ändern
     @State private var isEditingEmail = false
     @State private var editedEmail: String = ""
     @State private var isSavingEmail = false
-    
+
     // Passwort ändern
     @State private var isEditingPassword = false
     @State private var newPassword = ""
     @State private var confirmPassword = ""
     @State private var isChangingPassword = false
-    
+
     @State private var showPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var selectedProfileImageData: Data?
     @State private var isUploadingImage = false
-    
+
     // Account Löschen
     @State private var showDeleteAccountConfirm = false
     @State private var isDeletingAccount = false
-    
+
+    // Abmelden
+    @State private var showSignOutConfirm = false
+
     // Profile Image Service
     @StateObject private var profileImageService = ProfileImageService()
-    
+
     var body: some View {
         NavigationStack {
             Form {
                 // MARK: - Profil Section
-                Section {
+                Section("Profil") {
                     if let user = session.currentUser {
                         if isEditingName {
                             EditNameView(
@@ -112,7 +116,7 @@ struct SettingsView: View {
                         ProfilePlaceholderView()
                     }
                 }
-                
+
                 // MARK: - Erscheinungsbild
                 Section("Erscheinungsbild") {
                     AppearancePickerView(
@@ -120,24 +124,16 @@ struct SettingsView: View {
                         onAppearanceChange: setAppearance
                     )
                 }
-                
+
                 // MARK: - Abmelden
                 Section {
                     Button(role: .destructive) {
-                        Task {
-                            do {
-                                try await SupabaseAuthRepository().signOut()
-                                await MainActor.run { session.markSignedOut() }
-                                alertMessage = SettingsAlertMessage.signOutSuccess
-                            } catch {
-                                alertMessage = SettingsAlertMessage.signOutError(error)
-                            }
-                        }
+                        showSignOutConfirm = true
                     } label: {
                         Text("Abmelden")
                     }
                 }
-                
+
                 // MARK: - Account löschen
                 Section {
                     Button(role: .destructive) {
@@ -158,12 +154,31 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Einstellungen")
-            .alert("Ergebnis", isPresented: .constant(alertMessage != nil)) {
+            .alert("Hinweis", isPresented: .constant(alertMessage != nil)) {
                 Button("OK") { alertMessage = nil }
             } message: {
                 if let message = alertMessage {
                     Text(message)
                 }
+            }
+            .confirmationDialog(
+                "Wirklich abmelden?",
+                isPresented: $showSignOutConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Abmelden", role: .destructive) {
+                    Task {
+                        do {
+                            try await SupabaseAuthRepository().signOut()
+                            await MainActor.run { session.markSignedOut() }
+                        } catch {
+                            alertMessage = "Abmelden fehlgeschlagen: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                Button("Abbrechen", role: .cancel) { }
+            } message: {
+                Text("Du wirst von deinem Account abgemeldet.")
             }
             .confirmationDialog(
                 "Account wirklich löschen?",
@@ -189,52 +204,49 @@ struct SettingsView: View {
                     }
                 }
             }
-            .task {
-                await checkProfilePictureStatus()
+            .task(id: scenePhase) {
+                if scenePhase == .active {
+                    await checkProfilePictureStatus()
+                }
             }
         }
     }
-    
-    // MARK: - Account sofort löschen
+
+    // MARK: - Account löschen
     private func deleteAccount() async {
-        await MainActor.run {
-            isDeletingAccount = true
-        }
-        
+        await MainActor.run { isDeletingAccount = true }
+
         do {
             let authService = AuthService()
             try await authService.deleteAccountImmediately()
-            
             await MainActor.run {
                 isDeletingAccount = false
                 session.markSignedOut()
             }
-            
         } catch {
             await MainActor.run {
                 isDeletingAccount = false
-                alertMessage = SettingsAlertMessage.deleteAccountError(error)
+                alertMessage = "Account-Löschung fehlgeschlagen: \(error.localizedDescription)"
             }
-            print("❌ Delete account error: \(error)")
         }
     }
-    
+
     // MARK: - Profilbild Funktionen
     private func checkProfilePictureStatus() async {
+        guard !Task.isCancelled else { return }
+
         do {
             let exists = try await profileImageService.checkProfilePictureExists()
-            await MainActor.run {
-                hasProfileImage = exists
-            }
-            
-            if exists {
-                await loadProfilePicture()
-            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run { hasProfileImage = exists }
+            if exists { await loadProfilePicture() }
         } catch {
-            print("❌ Check profile picture error: \(error)")
+            if (error as NSError).code != NSURLErrorCancelled {
+                print("❌ Check profile picture error: \(error)")
+            }
         }
     }
-    
+
     private func loadProfilePicture() async {
         do {
             let imageData = try await profileImageService.downloadProfilePicture()
@@ -243,92 +255,74 @@ struct SettingsView: View {
                 hasProfileImage = true
             }
         } catch {
-            print("❌ Load profile picture error: \(error)")
             await MainActor.run {
                 hasProfileImage = false
                 profileImage = nil
             }
         }
     }
-    
+
     private func uploadProfileImage(_ imageData: Data) async {
         guard let uiImage = UIImage(data: imageData) else {
-            await MainActor.run {
-                alertMessage = SettingsAlertMessage.imageProcessingError
-            }
+            await MainActor.run { alertMessage = "Bild konnte nicht verarbeitet werden" }
             return
         }
-        
-        await MainActor.run {
-            isUploadingImage = true
-        }
-        
+
+        await MainActor.run { isUploadingImage = true }
+
         do {
             let avatarURL = try await profileImageService.uploadProfilePicture(uiImage)
             try await updateUserProfileWithAvatar(avatarURL)
-            
             await MainActor.run {
                 profileImage = uiImage
                 hasProfileImage = true
                 isUploadingImage = false
-                alertMessage = SettingsAlertMessage.profileImageUpdated
             }
-            
         } catch {
             await MainActor.run {
                 isUploadingImage = false
-                alertMessage = SettingsAlertMessage.profileImageUploadError(error)
+                alertMessage = "Profilbild konnte nicht hochgeladen werden"
             }
         }
     }
-    
+
     private func deleteProfileImage() async {
-        await MainActor.run {
-            isUploadingImage = true
-        }
-        
+        await MainActor.run { isUploadingImage = true }
+
         do {
             try await profileImageService.deleteProfilePicture()
             try await updateUserProfileWithAvatar("")
-            
             await MainActor.run {
                 profileImage = nil
                 hasProfileImage = false
                 isUploadingImage = false
-                alertMessage = SettingsAlertMessage.profileImageDeleted
             }
-            
         } catch {
             await MainActor.run {
                 isUploadingImage = false
-                alertMessage = SettingsAlertMessage.profileImageDeleteError(error)
+                alertMessage = "Profilbild konnte nicht gelöscht werden"
             }
         }
     }
-    
+
     private func updateUserProfileWithAvatar(_ avatarURL: String) async throws {
         guard let userId = session.currentUser?.id else { return }
-        
-        let updateData = ["avatar_url": avatarURL]
-        
         try await supabase
             .from("user")
-            .update(updateData)
+            .update(["avatar_url": avatarURL])
             .eq("id", value: userId.uuidString)
             .execute()
     }
-    
+
     // MARK: - Anzeigename speichern
     func saveDisplayName() async {
         guard let current = session.currentUser else { return }
         let newName = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty, newName != current.display_name else { return }
-        
+
         await MainActor.run { isSavingName = true }
         do {
-            struct UpdatePayload: Encodable {
-                let display_name: String
-            }
+            struct UpdatePayload: Encodable { let display_name: String }
             _ = try await supabase
                 .from("user")
                 .update(UpdatePayload(display_name: newName))
@@ -336,7 +330,7 @@ struct SettingsView: View {
                 .select("id, display_name, email")
                 .single()
                 .execute() as PostgrestResponse<AppUser>
-            
+
             let refreshed: AppUser = try await supabase
                 .from("user")
                 .select("id, display_name, email")
@@ -344,122 +338,73 @@ struct SettingsView: View {
                 .single()
                 .execute()
                 .value
-            
+
             await MainActor.run {
                 session.setCurrentUser(refreshed)
                 isSavingName = false
                 isEditingName = false
-                alertMessage = SettingsAlertMessage.displayNameUpdated
             }
         } catch {
             await MainActor.run {
                 isSavingName = false
-                alertMessage = SettingsAlertMessage.displayNameError(error)
+                alertMessage = "Konnte Benutzername nicht speichern"
             }
         }
     }
-    
+
     // MARK: - Email ändern
     private func changeEmail() async {
         let newEmail = editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !newEmail.isEmpty, newEmail != session.currentUser?.email else { return }
-        
         guard EmailValidator.isValid(newEmail) else {
-            await MainActor.run {
-                alertMessage = SettingsAlertMessage.invalidEmail
-            }
+            await MainActor.run { alertMessage = "Bitte gib eine gültige E-Mail-Adresse ein" }
             return
         }
-        
+
         await MainActor.run { isSavingEmail = true }
-        
+
         do {
-            let authService = AuthService()
-            try await authService.changeEmail(newEmail: newEmail)
-            
+            try await AuthService().changeEmail(newEmail: newEmail)
             await MainActor.run {
                 isSavingEmail = false
                 isEditingEmail = false
-                alertMessage = SettingsAlertMessage.emailChanged(newEmail)
+                alertMessage = "E-Mail wurde zu \(newEmail) geändert"
             }
         } catch {
             await MainActor.run {
                 isSavingEmail = false
-                alertMessage = SettingsAlertMessage.emailChangeError(error)
+                alertMessage = "E-Mail konnte nicht geändert werden"
             }
         }
     }
-    
+
     // MARK: - Passwort ändern
     private func changePassword() async {
-        guard !newPassword.isEmpty, newPassword == confirmPassword else { return }
-        guard newPassword.count >= 6 else { return }
-        
-        await MainActor.run {
-            isChangingPassword = true
-        }
-        
+        guard !newPassword.isEmpty, newPassword == confirmPassword, newPassword.count >= 6 else { return }
+
+        await MainActor.run { isChangingPassword = true }
+
         do {
-            let authService = AuthService()
-            try await authService.changePassword(newPassword: newPassword)
-            
+            try await AuthService().changePassword(newPassword: newPassword)
             await MainActor.run {
                 isChangingPassword = false
                 isEditingPassword = false
                 newPassword = ""
                 confirmPassword = ""
-                alertMessage = SettingsAlertMessage.passwordChanged
+                alertMessage = "Passwort wurde erfolgreich geändert"
             }
-            
         } catch {
             await MainActor.run {
                 isChangingPassword = false
-                alertMessage = SettingsAlertMessage.passwordChangeError(error)
+                alertMessage = "Passwort konnte nicht geändert werden"
             }
         }
     }
-    
+
     // MARK: - Appearance
     private func setAppearance(_ style: UIUserInterfaceStyle) {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        windowScene.windows.forEach { window in
-            window.overrideUserInterfaceStyle = style
-        }
-    }
-}
-
-// MARK: - Alert Messages
-private enum SettingsAlertMessage {
-    static let signOutSuccess = "✅ Erfolgreich abgemeldet."
-    static func signOutError(_ error: Error) -> String {
-        "❌ Abmelden fehlgeschlagen: \(error.localizedDescription)"
-    }
-    static func deleteAccountError(_ error: Error) -> String {
-        "❌ Account-Löschung fehlgeschlagen: \(error.localizedDescription)"
-    }
-    static let imageProcessingError = "❌ Bild konnte nicht verarbeitet werden"
-    static let profileImageUpdated = "✅ Profilbild erfolgreich aktualisiert"
-    static func profileImageUploadError(_ error: Error) -> String {
-        "❌ Profilbild konnte nicht hochgeladen werden: \(error.localizedDescription)"
-    }
-    static let profileImageDeleted = "✅ Profilbild erfolgreich gelöscht"
-    static func profileImageDeleteError(_ error: Error) -> String {
-        "❌ Profilbild konnte nicht gelöscht werden: \(error.localizedDescription)"
-    }
-    static let displayNameUpdated = "✅ Benutzername aktualisiert."
-    static func displayNameError(_ error: Error) -> String {
-        "❌ Konnte Benutzername nicht speichern: \(error.localizedDescription)"
-    }
-    static let invalidEmail = "❌ Bitte gib eine gültige E-Mail-Adresse ein."
-    static func emailChanged(_ email: String) -> String {
-        "✅ E-Mail wurde zu \(email) geändert"
-    }
-    static func emailChangeError(_ error: Error) -> String {
-        "❌ E-Mail konnte nicht geändert werden: \(error.localizedDescription)"
-    }
-    static let passwordChanged = "✅ Passwort wurde erfolgreich geändert"
-    static func passwordChangeError(_ error: Error) -> String {
-        "❌ Passwort konnte nicht geändert werden: \(error.localizedDescription)"
+        windowScene.windows.forEach { $0.overrideUserInterfaceStyle = style }
     }
 }
 
@@ -482,57 +427,51 @@ private struct ProfileHeaderView: View {
     let onChangePassword: () -> Void
     let onChangePhoto: () -> Void
     let onDeletePhoto: () -> Void
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                ProfileAvatarView(
-                    profileImage: profileImage,
-                    hasProfileImage: hasProfileImage,
-                    isUploadingImage: isUploadingImage,
-                    onChangePhoto: onChangePhoto,
-                    onDeletePhoto: onDeletePhoto
-                )
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(user.display_name)
-                        .font(.headline)
-                    Text(user.email)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                ProfileMenuButton(
-                    hasProfileImage: hasProfileImage,
-                    onEditName: onEditName,
-                    onEditEmail: onEditEmail,
-                    onChangePassword: onChangePassword,
-                    onChangePhoto: onChangePhoto,
-                    onDeletePhoto: onDeletePhoto
-                )
+        HStack(alignment: .center, spacing: 14) {
+            ProfileAvatarView(
+                user: user,
+                profileImage: profileImage,
+                hasProfileImage: hasProfileImage,
+                isUploadingImage: isUploadingImage,
+                onChangePhoto: onChangePhoto,
+                onDeletePhoto: onDeletePhoto
+            )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(user.display_name)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(user.email)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            
-            Divider()
+
+            Spacer()
+
+            ProfileMenuButton(
+                hasProfileImage: hasProfileImage,
+                onEditName: onEditName,
+                onEditEmail: onEditEmail,
+                onChangePassword: onChangePassword,
+                onChangePhoto: onChangePhoto,
+                onDeletePhoto: onDeletePhoto
+            )
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
-        )
-        .listRowBackground(Color.clear)
+        .padding(.vertical, 6)
     }
 }
 
 // MARK: - Profile Avatar View
 private struct ProfileAvatarView: View {
+    let user: AppUser
     let profileImage: UIImage?
     let hasProfileImage: Bool
     let isUploadingImage: Bool
     let onChangePhoto: () -> Void
     let onDeletePhoto: () -> Void
-    
+
     var body: some View {
         Menu {
             Button {
@@ -540,7 +479,7 @@ private struct ProfileAvatarView: View {
             } label: {
                 Label("Profilbild ändern", systemImage: "photo")
             }
-            
+
             if hasProfileImage {
                 Button(role: .destructive) {
                     onDeletePhoto()
@@ -552,28 +491,19 @@ private struct ProfileAvatarView: View {
             Group {
                 if isUploadingImage {
                     ProgressView()
-                        .frame(width: 46, height: 46)
+                        .frame(width: 52, height: 52)
                 } else if let profileImage = profileImage {
                     Image(uiImage: profileImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                } else if hasProfileImage {
-                    Image(systemName: "person.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.blue)
-                        .font(.system(size: 40))
                 } else {
                     Image("Avatar_Default")
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 }
             }
-            .frame(width: 46, height: 46)
+            .frame(width: 52, height: 52)
             .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-            )
         }
     }
 }
@@ -586,7 +516,7 @@ private struct ProfileMenuButton: View {
     let onChangePassword: () -> Void
     let onChangePhoto: () -> Void
     let onDeletePhoto: () -> Void
-    
+
     var body: some View {
         Menu {
             Button {
@@ -594,25 +524,25 @@ private struct ProfileMenuButton: View {
             } label: {
                 Label("Benutzername bearbeiten", systemImage: "pencil")
             }
-            
+
             Button {
                 onChangePassword()
             } label: {
                 Label("Passwort ändern", systemImage: "key")
             }
-            
+
             Button {
                 onEditEmail()
             } label: {
                 Label("E-Mail ändern", systemImage: "envelope")
             }
-            
+
             Button {
                 onChangePhoto()
             } label: {
                 Label("Profilbild ändern", systemImage: "photo")
             }
-            
+
             if hasProfileImage {
                 Button(role: .destructive) {
                     onDeletePhoto()
@@ -640,18 +570,18 @@ private struct EditNameView: View {
     let currentName: String
     let onCancel: () -> Void
     let onSave: () -> Void
-    
+
     private var canSave: Bool {
         !isSavingName &&
         !editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         editedDisplayName != currentName
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Benutzername bearbeiten")
                 .font(.headline)
-            
+
             TextField("Benutzername", text: $editedDisplayName)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled(false)
@@ -661,16 +591,16 @@ private struct EditNameView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color(.tertiarySystemBackground))
                 )
-            
+
             HStack {
                 Button("Abbrechen") {
                     onCancel()
                 }
                 .buttonStyle(.bordered)
                 .disabled(isSavingName)
-                
+
                 Spacer()
-                
+
                 Button {
                     onSave()
                 } label: {
@@ -700,24 +630,24 @@ private struct EditEmailView: View {
     let currentEmail: String
     let onCancel: () -> Void
     let onSave: () -> Void
-    
+
     private var canSave: Bool {
         !isSavingEmail &&
         !editedEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         editedEmail.lowercased() != currentEmail.lowercased() &&
         EmailValidator.isValid(editedEmail)
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("E-Mail ändern")
                 .font(.headline)
-            
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Aktuelle E-Mail")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 Text(currentEmail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -729,12 +659,12 @@ private struct EditEmailView: View {
                             .fill(Color(.tertiarySystemBackground).opacity(0.5))
                     )
             }
-            
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Neue E-Mail")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 TextField("Neue E-Mail-Adresse", text: $editedEmail)
                     .textContentType(.emailAddress)
                     .keyboardType(.emailAddress)
@@ -747,22 +677,22 @@ private struct EditEmailView: View {
                             .fill(Color(.tertiarySystemBackground))
                     )
             }
-            
+
             if !editedEmail.isEmpty && !EmailValidator.isValid(editedEmail) {
-                Text("❌ Bitte gib eine gültige E-Mail-Adresse ein")
+                Text("Bitte gib eine gültige E-Mail-Adresse ein")
                     .font(.caption)
                     .foregroundColor(.red)
             }
-            
+
             HStack {
                 Button("Abbrechen") {
                     onCancel()
                 }
                 .buttonStyle(.bordered)
                 .disabled(isSavingEmail)
-                
+
                 Spacer()
-                
+
                 Button {
                     onSave()
                 } label: {
@@ -792,31 +722,31 @@ private struct EditPasswordView: View {
     let isChangingPassword: Bool
     let onCancel: () -> Void
     let onSave: () -> Void
-    
+
     @State private var showPassword = false
-    
+
     private var passwordsMatch: Bool {
         !newPassword.isEmpty && newPassword == confirmPassword
     }
-    
+
     private var isPasswordValid: Bool {
         newPassword.count >= 6
     }
-    
+
     private var canSave: Bool {
         !isChangingPassword && passwordsMatch && isPasswordValid
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Passwort ändern")
                 .font(.headline)
-            
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Neues Passwort")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 Group {
                     if showPassword {
                         TextField("Neues Passwort", text: $newPassword)
@@ -831,12 +761,12 @@ private struct EditPasswordView: View {
                         .fill(Color(.tertiarySystemBackground))
                 )
             }
-            
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Passwort bestätigen")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 Group {
                     if showPassword {
                         TextField("Passwort bestätigen", text: $confirmPassword)
@@ -851,7 +781,7 @@ private struct EditPasswordView: View {
                         .fill(Color(.tertiarySystemBackground))
                 )
             }
-            
+
             Button {
                 showPassword.toggle()
             } label: {
@@ -861,37 +791,37 @@ private struct EditPasswordView: View {
                 )
                 .font(.caption)
             }
-            
+
             // Validation Feedback
             VStack(alignment: .leading, spacing: 4) {
                 if !newPassword.isEmpty && !isPasswordValid {
-                    Text("❌ Passwort muss mindestens 6 Zeichen lang sein")
+                    Text("Passwort muss mindestens 6 Zeichen lang sein")
                         .font(.caption)
                         .foregroundColor(.red)
                 }
-                
+
                 if !confirmPassword.isEmpty && !passwordsMatch {
-                    Text("❌ Passwörter stimmen nicht überein")
+                    Text("Passwörter stimmen nicht überein")
                         .font(.caption)
                         .foregroundColor(.red)
                 }
-                
+
                 if passwordsMatch && isPasswordValid {
-                    Text("✅ Passwörter stimmen überein")
+                    Text("Passwörter stimmen überein")
                         .font(.caption)
                         .foregroundColor(.green)
                 }
             }
-            
+
             HStack {
                 Button("Abbrechen") {
                     onCancel()
                 }
                 .buttonStyle(.bordered)
                 .disabled(isChangingPassword)
-                
+
                 Spacer()
-                
+
                 Button {
                     onSave()
                 } label: {
@@ -940,29 +870,33 @@ private struct ProfilePlaceholderView: View {
 private struct AppearancePickerView: View {
     @Binding var appAppearance: String
     let onAppearanceChange: (UIUserInterfaceStyle) -> Void
-    
+
     var body: some View {
         HStack(spacing: 8) {
-            appearanceButton(title: "Hell", key: "light", style: .light)
-            appearanceButton(title: "Dunkel", key: "dark", style: .dark)
-            appearanceButton(title: "System", key: "system", style: .unspecified)
+            appearanceButton(icon: "sun.max.fill", title: "Hell", key: "light", style: .light)
+            appearanceButton(icon: "moon.fill", title: "Dunkel", key: "dark", style: .dark)
+            appearanceButton(icon: "gear", title: "System", key: "system", style: .unspecified)
         }
     }
-    
-    private func appearanceButton(title: String, key: String, style: UIUserInterfaceStyle) -> some View {
+
+    private func appearanceButton(icon: String, title: String, key: String, style: UIUserInterfaceStyle) -> some View {
         Button {
             appAppearance = key
             onAppearanceChange(style)
         } label: {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(appAppearance == key ? Color.blue : Color(.secondarySystemBackground))
-                )
-                .foregroundStyle(appAppearance == key ? .white : .primary)
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(appAppearance == key ? Color.primary : Color(.secondarySystemBackground))
+            )
+            .foregroundStyle(appAppearance == key ? Color(.systemBackground) : .primary)
         }
         .buttonStyle(.plain)
     }

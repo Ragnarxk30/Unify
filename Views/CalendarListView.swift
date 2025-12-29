@@ -7,12 +7,19 @@ struct CalendarListView: View {
     @State private var errorMessage: String?
     @State private var editingEvent: Event? = nil
     @State private var showAddEvent = false
+    
+    // Event Detail/Action Sheets
+    @State private var selectedEventForDetails: Event? = nil
+    @State private var pendingAction: PendingEventAction? = nil
+    @State private var swipedEventId: UUID? = nil
+    @State private var cardOffsets: [UUID: CGFloat] = [:]
 
     // Filter-State
     @State private var showFilterPanel = false
     @State private var filterScope: CalendarFilterScope = .all
     @State private var selectedGroupIDs: Set<UUID> = []
-    @State private var allGroups: [AppGroup] = []   // später aus Repo laden
+    @State private var allGroups: [AppGroup] = []
+    @State private var groupsById: [UUID: AppGroup] = [:]
 
     // Frame des Filter-Buttons (global)
     @State private var filterButtonFrame: CGRect = .zero
@@ -27,6 +34,8 @@ struct CalendarListView: View {
     @State private var anchorDate: Date = Date()
     @State private var selectedDateAdvanced: Date? = nil
     @State private var slideDirection: Int = 0
+
+    // Event Detail/Action Sheets
 
     private let sideInset: CGFloat = 20
 
@@ -54,7 +63,6 @@ struct CalendarListView: View {
                 .overlay {
                     if showFilterPanel {
                         ZStack(alignment: .topLeading) {
-                            // Abdunkelung
                             Color.black.opacity(0.25)
                                 .ignoresSafeArea()
                                 .onTapGesture {
@@ -63,7 +71,6 @@ struct CalendarListView: View {
                                     }
                                 }
 
-                            // Popup – an Button gehängt
                             EventFilterSidePanel(
                                 scope: $filterScope,
                                 allGroups: allGroups,
@@ -124,12 +131,18 @@ struct CalendarListView: View {
             EditEventView(event: event) {
                 Task { await loadEvents() }
             }
+            .presentationDetents([.medium]) // ← Halbes Display!
         }
         .sheet(isPresented: $showAddEvent) {
             CreateEventView(allGroups: allGroups) {
                 Task { await loadEvents() }
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $selectedEventForDetails) { event in
+            EventDetailsSheet(event: event)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -168,18 +181,177 @@ struct CalendarListView: View {
                     if mode == .list {
                         listContent
                     } else {
-                        // Erweitertes Kalender-UI (Monat/Woche/Tag)
-                        advancedCalendarContent
+                        ZoomableCalendarView(
+                            events: filteredEvents,
+                            calendar: calendar,
+                            allGroups: allGroups,
+                            onAdd: { showAddEvent = true },
+                            onEdit: { event in
+                                editingEvent = event
+                            },
+                            onDelete: { event in
+                                await deleteEvent(event)
+                            },
+                            onRefresh: {
+                                await loadEvents()
+                            }
+                        )
                     }
                 }
             }
         }
     }
 
+    // MARK: - Listen Ansicht
+    private var listContent: some View {
+        List {
+            if filteredEvents.isEmpty {
+                Section {
+                    emptyStateView
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(filteredEvents) { event in
+                        listEventRow(event)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
+        .alert(
+            "Termin löschen?",
+            isPresented: Binding(
+                get: {
+                    if case .delete = pendingAction {
+                        return true
+                    }
+                    return false
+                },
+                set: { if !$0 { pendingAction = nil } }
+            )
+        ) {
+            Button("Löschen", role: .destructive) {
+                if case .delete(let e) = pendingAction {
+                    Task { await deleteEvent(e) }
+                }
+                pendingAction = nil
+            }
+            Button("Abbrechen", role: .cancel) {
+                pendingAction = nil
+            }
+        } message: {
+            if case .delete(let e) = pendingAction {
+                Text("Möchtest du \"\(e.title)\" wirklich löschen?")
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func listEventRow(_ event: Event) -> some View {
+        ZStack(alignment: .topTrailing) {
+            EventCard(
+                event: event,
+                group: event.group_id.flatMap { groupsById[$0] },
+                onTap: { event in
+                    selectedEventForDetails = event
+                }
+            )
+            .contentShape(Rectangle())
+            .offset(x: cardOffsets[event.id] ?? 0)
+            .zIndex(0) // ← Card ist unten
+            .gesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { gesture in
+                        if gesture.translation.width < -50 {
+                            swipedEventId = event.id
+                            
+                            withAnimation(.easeOut(duration: 0.1)) {
+                                cardOffsets[event.id] = -12
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
+                                    cardOffsets[event.id] = 0
+                                }
+                            }
+                            
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    if swipedEventId == event.id {
+                                        swipedEventId = nil
+                                    }
+                                }
+                            }
+                            
+                        } else if gesture.translation.width > 20 {
+                            swipedEventId = nil
+                            
+                            withAnimation(.easeOut(duration: 0.1)) {
+                                cardOffsets[event.id] = 8
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
+                                    cardOffsets[event.id] = 0
+                                }
+                            }
+                        }
+                    }
+            )
+            
+            // Button mit höherem zIndex
+            Button {
+                if swipedEventId == event.id {
+                    pendingAction = .delete(event)
+                    swipedEventId = nil
+                } else {
+                    editingEvent = event
+                }
+            } label: {
+                Image(systemName: swipedEventId == event.id ? "trash.fill" : "pencil")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(swipedEventId == event.id ? Color.red : Color.blue)
+                            .shadow(
+                                color: (swipedEventId == event.id ? Color.red : Color.blue).opacity(0.25),
+                                radius: 4,
+                                x: 0,
+                                y: 2
+                            )
+                    )
+            }
+            .buttonStyle(.plain) // ← WICHTIG: Plain style damit er nicht blockiert wird
+            .padding(12)
+            .zIndex(1) // ← Button ist oben
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: swipedEventId)
+        }
+        .listRowInsets(EdgeInsets(top: 8, leading: sideInset, bottom: 8, trailing: sideInset))
+        .listRowBackground(Color.clear)
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Keine Termine")
+                .font(.headline)
+            Text("Erstelle deinen ersten Termin")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.vertical, 40)
+    }
+
     // MARK: - Neue erweiterte Kalenderansicht (Month/Week/Day)
     private var advancedCalendarContent: some View {
         VStack(spacing: 14) {
-            // Header mit Navigation
             HStack(spacing: 12) {
                 Button {
                     slideDirection = -1
@@ -225,7 +397,6 @@ struct CalendarListView: View {
             .padding(.horizontal, sideInset)
             .padding(.top, 6)
 
-            // Modus Picker (Monat/Woche/Tag)
             Picker("", selection: $calendarViewMode) {
                 ForEach(CalendarViewMode.allCases) { m in
                     Text(m.rawValue).tag(m)
@@ -383,7 +554,7 @@ struct CalendarListView: View {
         return df.string(from: d)
     }
 
-    // MARK: - Bestehende einfache Kalenderansicht (nicht mehr genutzt, aber belassen)
+    // MARK: - Bestehende einfache Kalenderansicht
     private var calendarContent: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -409,7 +580,49 @@ struct CalendarListView: View {
                     } else {
                         VStack(spacing: 12) {
                             ForEach(selectedDateEvents) { event in
-                                EventCard(event: event)
+                                ModernEventCard(
+                                    event: event,
+                                    group: event.group_id.flatMap { groupsById[$0] },
+                                    onTap: { event in
+                                        selectedEventForDetails = event
+                                    }
+                                )
+                                .contentShape(Rectangle())
+                                .contextMenu {
+                                    Button {
+                                        pendingAction = .edit(event)
+                                    } label: {
+                                        Label("Bearbeiten", systemImage: "pencil")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        pendingAction = .delete(event)
+                                    } label: {
+                                        Label("Löschen", systemImage: "trash")
+                                    }
+                                }
+                                .confirmationDialog(
+                                    pendingAction?.title ?? "",
+                                    isPresented: Binding(
+                                        get: { pendingAction?.eventId == event.id },
+                                        set: { if !$0 { pendingAction = nil } }
+                                    ),
+                                    titleVisibility: .visible
+                                ) {
+                                    Button("Bestätigen") {
+                                        guard let action = pendingAction else { return }
+                                        switch action {
+                                        case .delete(let e):
+                                            Task { await deleteEvent(e) }
+                                        case .edit(let e):
+                                            editingEvent = e
+                                        }
+                                        pendingAction = nil
+                                    }
+                                    Button("Abbrechen", role: .cancel) {
+                                        pendingAction = nil
+                                    }
+                                }
                             }
                         }
                     }
@@ -562,64 +775,6 @@ struct CalendarListView: View {
             .sorted { $0.starts_at < $1.starts_at }
     }
 
-    private var listContent: some View {
-        List {
-            if filteredEvents.isEmpty {
-                Section {
-                    emptyStateView
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(filteredEvents) { event in
-                        EventCard(event: event)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 8,
-                                    leading: sideInset,
-                                    bottom: 8,
-                                    trailing: sideInset
-                                )
-                            )
-                            .listRowBackground(Color.clear)
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    Task { await deleteEvent(event) }
-                                } label: {
-                                    Label("Löschen", systemImage: "trash")
-                                }
-
-                                Button {
-                                    editingEvent = event
-                                } label: {
-                                    Label("Bearbeiten", systemImage: "pencil")
-                                }
-                            }
-                    }
-                }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
-    }
-
-    private var emptyStateView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "calendar.badge.exclamationmark")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("Keine Termine")
-                .font(.headline)
-            Text("Erstelle deinen ersten Termin in einer Gruppe")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.vertical, 40)
-    }
-
     // MARK: - Laden & Löschen
 
     @MainActor
@@ -642,7 +797,11 @@ struct CalendarListView: View {
         do {
             let repo = SupabaseEventRepository()
             try await repo.delete(eventId: event.id)
-            events.removeAll { $0.id == event.id }
+            await MainActor.run {
+                withAnimation(.easeInOut) {
+                    events.removeAll { $0.id == event.id }
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -654,17 +813,14 @@ struct CalendarListView: View {
             let groupRepo = SupabaseGroupRepository()
             let groups = try await groupRepo.fetchGroups()
             allGroups = groups
-            print("✅ CalendarListView: \(groups.count) Gruppen in allGroups geladen")
-            for g in groups {
-                print("   • \(g.name) – \(g.id)")
-            }
+            groupsById = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+            print("✅ CalendarListView: \(groups.count) Gruppen geladen")
         } catch {
             print("❌ Fehler beim Laden der Gruppen:", error)
         }
     }
 
-    // MARK: - Advanced calendar helpers (arbeiten direkt mit Event)
-
+    // MARK: - Advanced calendar helpers
     private func events(on day: Date) -> [Event] {
         let key = calendar.startOfDay(for: day)
         return filteredEvents
@@ -684,16 +840,139 @@ struct CalendarListView: View {
 
     private func color(for event: Event) -> Color {
         if let gid = event.group_id {
-            // deterministische Farbe aus UUID
             let hash = gid.uuidString.hashValue
             let idx = abs(hash) % Self.palette.count
             return Self.palette[idx]
         } else {
-            return .blue // persönliche Events
+            return .blue
         }
     }
 
     private static let palette: [Color] = [.blue, .green, .red, .orange, .pink, .purple, .teal, .indigo]
+}
+
+// MARK: - Modern Event Card
+private struct ModernEventCard: View {
+    let event: Event
+    let group: AppGroup?
+    var onTap: ((Event) -> Void)?
+    
+    private var eventColor: Color {
+        if let groupId = event.group_id {
+            let hash = groupId.uuidString.hashValue
+            let idx = abs(hash) % ModernEventCard.colorPalette.count
+            return ModernEventCard.colorPalette[idx]
+        }
+        return .blue
+    }
+    
+    private var isPersonalEvent: Bool {
+        event.group_id == nil
+    }
+    
+    private static let colorPalette: [Color] = [
+        .blue, .green, .red, .orange, .pink, .purple, .teal, .indigo
+    ]
+    
+    var body: some View {
+        Button {
+            onTap?(event)
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(eventColor)
+                            .frame(width: 4)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(event.title)
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                            
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                
+                                Text(formattedTimeRange)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
+                
+                // Divider
+                Divider()
+                    .padding(.horizontal, 12)
+                
+                // Footer
+                HStack(spacing: 16) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isPersonalEvent ? "person.fill" : "person.2.fill")
+                            .font(.caption)
+                            .foregroundStyle(eventColor)
+                            .frame(width: 20)
+                        
+                        Text(isPersonalEvent ? "Persönlich" : (group?.name ?? "Unbekannte Gruppe"))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer()
+                    
+                    if let creator = event.user {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            
+                            Text(creator.display_name)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.02), radius: 2, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var formattedTimeRange: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        
+        let start = formatter.string(from: event.starts_at)
+        
+        formatter.dateStyle = .none
+        let end = formatter.string(from: event.ends_at)
+        
+        return "\(start) - \(end)"
+    }
 }
 
 // MARK: - Preference Key
@@ -713,7 +992,7 @@ enum CalendarViewMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-// MARK: - Swipe Modifier used by Month/Week/Day views
+// MARK: - Swipe Modifier
 private struct SwipeToNavigate: ViewModifier {
     let threshold: CGFloat
     let onSwipeLeft: () -> Void
@@ -741,7 +1020,7 @@ private extension View {
     }
 }
 
-// MARK: - Advanced Month View (Events-basiert)
+// MARK: - Advanced Month View
 private struct MonthGridView: View {
     let calendar: Calendar
     @Binding var anchorDate: Date
@@ -812,7 +1091,7 @@ private struct MonthGridView: View {
     }
 }
 
-// MARK: - Advanced Week View (Events-basiert)
+// MARK: - Advanced Week View
 private struct WeekGridView: View {
     let calendar: Calendar
     @Binding var anchorDate: Date
@@ -876,7 +1155,7 @@ private struct WeekGridView: View {
     }
 }
 
-// MARK: - Advanced Day View (Events-basiert)
+// MARK: - Advanced Day View
 private struct DayScheduleView: View {
     let calendar: Calendar
     @Binding var anchorDate: Date
@@ -918,7 +1197,6 @@ private struct DayScheduleView: View {
                         let totalWidth = endX - startX
 
                         ZStack(alignment: .topLeading) {
-
                             Path { p in
                                 for h in 0...24 {
                                     let y = CGFloat(h) * hourHeight
@@ -997,7 +1275,7 @@ private struct DayScheduleView: View {
     }
 }
 
-// MARK: - Day Layout Helpers (Events)
+// MARK: - Day Layout Helpers
 private struct DayEventLayoutItem: Identifiable {
     let id = UUID()
     let event: Event
@@ -1083,7 +1361,7 @@ private struct DayEventLayout {
     }
 }
 
-// MARK: - Event Block (Events)
+// MARK: - Event Block
 private struct EventBlock: View {
     let event: Event
     let calendar: Calendar
@@ -1135,7 +1413,7 @@ private struct EventBlock: View {
     }
 }
 
-// MARK: - Cells (Month/Week)
+// MARK: - Cells
 private struct MonthDayCell: View {
     let calendar: Calendar
     let date: Date
@@ -1183,7 +1461,10 @@ private struct MonthDayCell: View {
         }
         .padding(8)
         .frame(height: 70)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(.systemGray6))
+        )
         .opacity(inCurrentMonth ? 1.0 : 0.55)
     }
 }
@@ -1235,7 +1516,7 @@ private struct WeekDayPill: View {
     }
 }
 
-// MARK: - Calendar helpers (datesForMonthGrid/weekDates)
+// MARK: - Calendar helpers
 private extension Calendar {
     func startOfMonth(for date: Date) -> Date {
         self.date(from: self.dateComponents([.year, .month], from: date))!
@@ -1287,5 +1568,199 @@ private extension Calendar {
     func weekDates(containing date: Date) -> [Date] {
         let start = self.dateInterval(of: .weekOfYear, for: date)!.start
         return (0..<7).compactMap { self.date(byAdding: .day, value: $0, to: start) }
+    }
+}
+
+private struct EventDetailsSheet: View {
+    let event: Event
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header (gleicher Stil)
+            HStack {
+                Button("Schließen") {
+                    dismiss()
+                }
+
+                Spacer()
+
+                Text("Termin-Details")
+                    .font(.headline)
+
+                Spacer()
+
+                // Platzhalter für Symmetrie
+                Button("Schließen") {
+                    dismiss()
+                }
+                .opacity(0)
+                .disabled(true)
+            }
+            .padding(.horizontal)
+            .padding(.top, 23)
+            .padding(.bottom, 17)
+            .background(Color(.systemBackground))
+
+            Divider()
+
+            // Content
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(event.title)
+                            .font(.title2.bold())
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                }
+
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "calendar")
+                            .foregroundStyle(.blue)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Datum")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(formattedDate)
+                                .font(.subheadline)
+                        }
+                        Spacer()
+                    }
+
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock")
+                            .foregroundStyle(.blue)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Zeitraum")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(formattedTimeRange)
+                                .font(.subheadline)
+                        }
+                        Spacer()
+                    }
+
+                    if event.group_id != nil {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.2.fill")
+                                .foregroundStyle(.blue)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Typ")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("Gruppen-Termin")
+                                    .font(.subheadline)
+                            }
+                            Spacer()
+                        }
+                    } else {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.fill")
+                                .foregroundStyle(.blue)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Typ")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("Persönlich")
+                                    .font(.subheadline)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+
+                if let details = event.details, !details.isEmpty {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "text.alignleft")
+                                    .foregroundStyle(.blue)
+                                Text("Details")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            
+                            Text(details)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if let creator = event.user {
+                    Section {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .foregroundStyle(.blue)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Erstellt von")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(creator.display_name)
+                                    .font(.subheadline)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var formattedDate: String {
+        let df = DateFormatter()
+        df.locale = Locale.current
+        df.dateStyle = .long
+        df.timeStyle = .none
+        return df.string(from: event.starts_at)
+    }
+
+    private var formattedTimeRange: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+
+        let start = formatter.string(from: event.starts_at)
+        let end = formatter.string(from: event.ends_at)
+
+        return "\(start) - \(end)"
+    }
+}
+
+// MARK: - PendingEventAction
+private enum PendingEventAction: Identifiable, Equatable {
+    case delete(Event)
+    case edit(Event)
+
+    var id: String {
+        switch self {
+        case .delete(let e): return "delete-\(e.id)"
+        case .edit(let e):   return "edit-\(e.id)"
+        }
+    }
+
+    var eventId: Event.ID {
+        switch self {
+        case .delete(let e), .edit(let e): return e.id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .delete(let e): return "\"\(e.title)\" löschen?"
+        case .edit(let e):   return "\"\(e.title)\" bearbeiten?"
+        }
+    }
+    
+    static func == (lhs: PendingEventAction, rhs: PendingEventAction) -> Bool {
+        lhs.id == rhs.id
     }
 }

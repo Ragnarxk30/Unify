@@ -14,67 +14,57 @@ struct GroupMonthlyCalendarView: View {
     @State private var selectedDate: Date? = nil
     @State private var slideDirection: Int = 0
     @State private var showAddEvent: Bool = false
+    @State private var editingEvent: Event? = nil
+    @State private var allGroups: [AppGroup] = []
 
     private let calendar = Calendar.current
 
     var body: some View {
-        VStack(spacing: 14) {
-            header
-
-            // Modus Picker (Monat/Woche/Tag)
-            Picker("", selection: $calendarViewMode) {
-                ForEach(CalendarViewMode.allCases) { m in
-                    Text(m.rawValue).tag(m)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-
-            Group {
-                if isLoading {
-                    ProgressView("Lade Termine...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let errorMessage {
-                    VStack(spacing: 12) {
-                        Text("Fehler beim Laden der Termine")
-                            .font(.headline)
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Button("Erneut versuchen") {
-                            Task { await loadEvents() }
-                        }
-                        .buttonStyle(.bordered)
-                    }
+        Group {
+            if isLoading {
+                ProgressView("Lade Termine...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ZStack {
-                        currentModeView
-                            .id(modeID)
-                            .transition(slideTransition)
+            } else if let errorMessage {
+                VStack(spacing: 12) {
+                    Text("Fehler beim Laden der Termine")
+                        .font(.headline)
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Erneut versuchen") {
+                        Task { await loadEvents() }
                     }
-                    .animation(.easeInOut(duration: 0.28), value: modeID)
+                    .buttonStyle(.bordered)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // iPhone-Style Zoomable Kalender
+                ZoomableCalendarView(
+                    events: events,
+                    calendar: calendar,
+                    allGroups: [],
+                    onAdd: { showAddEvent = true },
+                    onEdit: { event in
+                        editingEvent = event
+                    },
+                    onDelete: { event in
+                        await deleteEvent(event)
+                    },
+                    onRefresh: {
+                        await loadEvents()
+                    }
+                )
             }
-
-            Spacer(minLength: 0)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("Gruppenkalender")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddEvent = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Neuen Termin anlegen")
-            }
-        }
         .sheet(isPresented: $showAddEvent) {
             GroupEventsView(groupID: groupID)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $editingEvent) { event in
+            EditEventView(event: event) {
+                Task { await loadEvents() }
+            }
         }
         .task {
             await loadEvents()
@@ -283,6 +273,21 @@ struct GroupMonthlyCalendarView: View {
         }
 
         isLoading = false
+    }
+
+    @MainActor
+    private func deleteEvent(_ event: Event) async {
+        do {
+            let repo = SupabaseEventRepository()
+            try await repo.delete(eventId: event.id)
+            await MainActor.run {
+                withAnimation(.easeInOut) {
+                    events.removeAll { $0.id == event.id }
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Helpers (Events/Colors)
