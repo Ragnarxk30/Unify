@@ -197,12 +197,13 @@ private struct GroupRow: View {
     let memberCount: Int
 
     @State private var groupImage: UIImage?
+    @State private var groupImageCircle: UIImage?
     @State private var showGroupImageViewer = false
-    
+
     var memberCountText: String {
         memberCount == 1 ? "1 Mitglied" : "\(memberCount) Mitglieder"
     }
-    
+
     var body: some View {
         NavigationLink(destination: GroupChatScreen(group: group)) {
             HStack(spacing: 14) {
@@ -211,8 +212,8 @@ private struct GroupRow: View {
                     showGroupImageViewer = true
                 } label: {
                     Group {
-                        if let groupImage {
-                            Image(uiImage: groupImage)
+                        if let circleImage = groupImageCircle {
+                            Image(uiImage: circleImage)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 52, height: 52)
@@ -294,7 +295,12 @@ private struct GroupRow: View {
             )
         }
         .task {
-            groupImage = await GroupImageService.shared.getCachedGroupImage(for: group.id)
+            async let fullImage = GroupImageService.shared.getCachedGroupImage(for: group.id)
+            async let circleImage = GroupImageService.shared.getCachedGroupImageCircle(for: group.id)
+
+            let (full, circle) = await (fullImage, circleImage)
+            groupImage = full
+            groupImageCircle = circle ?? full  // Fallback zu full wenn kein Circle
         }
     }
 }
